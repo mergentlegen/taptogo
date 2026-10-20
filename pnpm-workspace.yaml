@@ -1,0 +1,7 @@
+# pnpm blocks dependency install scripts unless listed here.
+# All of these ship prebuilt binaries, so their postinstall steps are not needed.
+allowBuilds:
+  "@parcel/watcher": false
+  "@swc/core": false
+  sharp: false
+  unrs-resolver: false
