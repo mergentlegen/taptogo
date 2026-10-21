@@ -49,6 +49,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             <div className="ml-auto flex items-center gap-1">
               <ThemeToggle />
               <UserMenu
+                cabinet
+                canManageTeam={access.permissions.includes("org.team.manage")}
                 name={user.name}
                 email={user.email}
                 roleLabel={

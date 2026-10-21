@@ -22,7 +22,13 @@ export type DashboardData = {
     /** ≈ new reviews / unique visitors; an estimate, always labelled as such. */
     conversion: Comparison<number | null>;
   };
-  daily: { date: IsoDate; taps: number; reviewCount: number | null }[];
+  daily: {
+    date: IsoDate;
+    taps: number;
+    reviewCount: number | null;
+    reviewChange: number | null;
+    rating: number | null;
+  }[];
   /** First card activation in scope, shown as a "before / after" marker. */
   installDate: IsoDate | null;
   heatmap: HeatmapCell[];
@@ -132,6 +138,8 @@ export class AnalyticsService {
       date,
       taps: tapsByDate.get(date)?.taps ?? 0,
       reviewCount: history.reviewCountAt(ratingLocationIds, addDays(date, 1)),
+      reviewChange: history.newReviews(ratingLocationIds, date, date),
+      rating: history.ratingAt(ratingLocationIds, addDays(date, 1)),
     }));
 
     const range = dayRange(period.from, period.to, ctx.timeZone);

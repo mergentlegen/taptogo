@@ -13,8 +13,8 @@ const styles: Record<CardStatus, string> = {
 };
 
 /** Status always carries its text label; color only reinforces it. */
-export function CardStatusBadge({ status }: { status: CardStatus }) {
-  const t = useTranslations("cards.statuses");
+export function CardStatusBadge({ status, customer = false }: { status: CardStatus; customer?: boolean }) {
+  const t = useTranslations("cards");
   return (
     <span
       className={cn(
@@ -23,7 +23,7 @@ export function CardStatusBadge({ status }: { status: CardStatus }) {
       )}
     >
       <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-      {t(status)}
+      {customer ? t(`customerStatuses.${status}`) : t(`statuses.${status}`)}
     </span>
   );
 }

@@ -34,6 +34,7 @@ export default async function SupportPage() {
             </CardHeader>
             <CardContent>
               <TicketForm />
+              <p className="mt-3 text-sm text-muted-foreground">{t("support.responseHint")}</p>
             </CardContent>
           </Card>
           <Card>

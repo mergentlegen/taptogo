@@ -1,5 +1,6 @@
 import type { Card, CardStatus, CardType } from "@/features/cards/schemas";
 import type { RedirectTargetType } from "@/features/targets/schemas";
+import { checkTargetUrl } from "@/features/targets/url-policy";
 import { addDays, toLocalDate, type IsoDate } from "@/lib/dates";
 import { serviceError } from "@/server/i18n";
 import type { HeatmapCell, Repositories, TapBreakdown } from "@/server/repositories";
@@ -38,9 +39,14 @@ export type CardDetail = {
     lastTapAt: string | null;
   };
   options: {
-    locations: { id: string; name: string }[];
+    locations: { id: string; name: string; address: string }[];
     employees: { id: string; name: string; locationId: string | null }[];
-    targets: { id: string; type: RedirectTargetType; url: string; locationId: string | null }[];
+    targets: {
+      id: string;
+      type: RedirectTargetType;
+      url: string;
+      locationId: string | null;
+    }[];
   };
 };
 
@@ -133,17 +139,27 @@ export class CardService {
         to,
         taps: totals.taps,
         uniqueVisitors: totals.uniqueVisitors,
-        daily: days.map((date) => ({ date, taps: byDate.get(date)?.taps ?? 0 })),
+        daily: days.map((date) => ({
+          date,
+          taps: byDate.get(date)?.taps ?? 0,
+        })),
         heatmap,
         breakdown,
         lastTapAt: lastTaps[card.id] ?? null,
       },
       options: {
-        locations: locations.map(({ id, name }) => ({ id, name })),
+        locations: locations
+          .filter((l) => l.isActive)
+          .map(({ id, name, address }) => ({ id, name, address })),
         employees: employees
           .filter((e) => e.isActive || e.id === card.employeeId)
           .map(({ id, name, locationId }) => ({ id, name, locationId })),
-        targets: targets.map(({ id, type, url, locationId }) => ({ id, type, url, locationId })),
+        targets: targets.map(({ id, type, url, locationId }) => ({
+          id,
+          type,
+          url,
+          locationId,
+        })),
       },
     };
   }
@@ -155,7 +171,7 @@ export class CardService {
       label: string;
       locationId: string | null;
       employeeId: string | null;
-      targetId: string | null;
+      targetId?: string | null;
     },
   ): Promise<Card> {
     assertOrgPermission(ctx, "org.cards.manage");
@@ -163,20 +179,31 @@ export class CardService {
     const card = await this.requireCard(ctx, input.cardId);
 
     // Every reference must belong to the same organization; a target must also be verified.
-    const [location, employee, target] = await Promise.all([
+    const [location, employee, targets, settings] = await Promise.all([
       input.locationId ? repos.locations.findById(input.locationId) : null,
       input.employeeId ? repos.employees.findById(input.employeeId) : null,
-      input.targetId ? repos.targets.findById(input.targetId) : null,
+      repos.targets.list({ isVerified: true }),
+      repos.platformSettings(),
     ]);
-    if (input.locationId && !location) throw serviceError("VALIDATION", "locationNotFound");
+    if (!location?.isActive) throw serviceError("VALIDATION", "locationNotFound");
     if (input.employeeId && !employee) throw serviceError("VALIDATION", "employeeNotFound");
-    if (input.targetId && !target?.isVerified) throw serviceError("VALIDATION", "targetMustBeVerified");
+    if (employee?.locationId && employee.locationId !== location.id)
+      throw serviceError("VALIDATION", "employeeLocationMismatch");
+    // The browser chooses a venue, never a redirect URL or an independent target.
+    const eligible = targets.filter(
+      (t) =>
+        t.locationId === location.id &&
+        t.type === "TWOGIS_REVIEW" &&
+        checkTargetUrl(t.url, settings.allowedRedirectDomains).ok,
+    );
+    const target = eligible.find((t) => t.id === card.targetId) ?? eligible[0];
+    if (!target) throw serviceError("VALIDATION", "venueNeedsReviewLink");
 
     const updated = await repos.cards.update(card.id, {
       label: input.label,
       locationId: input.locationId,
       employeeId: input.employeeId,
-      targetId: input.targetId,
+      targetId: target.id,
     });
     const diff = auditDiff(card, updated, ["label", "locationId", "employeeId", "targetId"]);
     if (diff) await this.record(ctx, "card.update", card.id, diff);
@@ -208,7 +235,9 @@ export class CardService {
     if (!CLIENT_EDITABLE.includes(card.status)) {
       throw serviceError("CONFLICT", "cardStatusLocked");
     }
-    const updated = await this.tenant(ctx).cards.update(card.id, { status: "LOST" });
+    const updated = await this.tenant(ctx).cards.update(card.id, {
+      status: "LOST",
+    });
     await this.record(ctx, "card.report_lost", card.id, {
       before: { status: card.status },
       after: { status: "LOST" },

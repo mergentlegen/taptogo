@@ -17,7 +17,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { NotificationSwitch } from "@/features/settings/components/notification-switch";
 import type { CellValue } from "@/lib/csv";
 import { toLocalDate } from "@/lib/dates";
 import { formatIsoDate, formatNumber, formatRating } from "@/lib/format";
@@ -66,11 +65,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/app/repo
   const period = resolvePeriod(raw, today);
   const dimension = reportDimensions.find((d) => d === searchParam(params.dimension)) ?? "days";
 
-  const [subscription, notifications, t] = await Promise.all([
-    services.subscription.view(ctx),
-    services.account.notifications(ctx),
-    getTranslations("reports"),
-  ]);
+  const [subscription, t] = await Promise.all([services.subscription.view(ctx), getTranslations("reports")]);
   const report = subscription.statsAllowed ? await services.reports.build(ctx, period, dimension) : null;
 
   const query = (extra: Record<string, string>) => {
@@ -89,18 +84,6 @@ export default async function ReportsPage({ searchParams }: PageProps<"/app/repo
         title={(await getTranslations("app.pages.reports"))("title")}
         description={t("exportHint")}
       />
-
-      <Card className="mb-4">
-        <CardContent>
-          <NotificationSwitch
-            name="weeklyReportEmail"
-            checked={notifications.weeklyReportEmail}
-            label={t("weekly.title")}
-            hint={t("weekly.text")}
-            savedMessage={t("weekly.saved")}
-          />
-        </CardContent>
-      </Card>
 
       <StatsGate subscription={subscription}>
         {report && (

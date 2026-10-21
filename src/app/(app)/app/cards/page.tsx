@@ -16,15 +16,21 @@ export default async function CardsPage() {
   const access = await requireOrgAccess("org.view");
   const ctx = orgContextFrom(access);
   const t = await getTranslations("app.pages.cards");
-  const [cards, locations] = await Promise.all([
+  const [cards, locations, subscription] = await Promise.all([
     getServices().cards.list(ctx),
     getServices().locations.options(ctx),
+    getServices().subscription.view(ctx),
   ]);
 
   return (
     <>
       <PageHeader title={t("title")} description={t("description")} />
-      <CardsTable cards={cards} locations={locations} timeZone={ctx.timeZone} />
+      <CardsTable
+        showStats={subscription.statsAllowed}
+        cards={cards}
+        locations={locations}
+        timeZone={ctx.timeZone}
+      />
     </>
   );
 }

@@ -1,14 +1,26 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { formatCompact, formatIsoDate, formatNumber } from "@/lib/format";
 
 /** Serializable formatter choice (functions can not cross the server → client boundary). */
-export type ValueFormat = "number" | "compact" | "rating";
+export type ValueFormat = "number" | "compact" | "rating" | "signed";
 const formatters: Record<ValueFormat, (value: number) => string> = {
   number: formatNumber,
+  signed: (value) => `${value > 0 ? "+" : ""}${formatNumber(value)}`,
   compact: formatCompact,
   // Two decimals so adjacent axis ticks (4,35 / 4,40) never print the same label.
   rating: (value) => value.toFixed(2).replace(".", ","),
@@ -20,7 +32,7 @@ type Point = { date: string; value: number | null };
 
 type TimeSeriesChartProps = {
   data: Point[];
-  kind: "bar" | "line";
+  kind: "bar" | "line" | "area";
   /** Series name (tooltip); the card title names the chart, so there is no legend box. */
   label: string;
   /** CSS color token, e.g. "var(--chart-1)". */
@@ -68,7 +80,7 @@ export function TimeSeriesChart({
       axisLine={false}
       tickMargin={4}
       allowDecimals={valueFormat === "rating"}
-      domain={tightDomain ? ["auto", "auto"] : [0, "auto"]}
+      domain={tightDomain ? ["auto", "auto"] : [(min: number) => Math.min(0, min), "auto"]}
       tickFormatter={(value: number) => formatValue(value)}
     />
   );
@@ -129,6 +141,25 @@ export function TimeSeriesChart({
             animationDuration={ANIMATION_MS}
           />
         </BarChart>
+      ) : kind === "area" ? (
+        <AreaChart data={data} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+          {grid}
+          {xAxis}
+          {yAxis}
+          {tooltip}
+          {markerLine}
+          <Area
+            dataKey="value"
+            type="linear"
+            stroke="var(--color-value)"
+            strokeWidth={2}
+            fill="var(--color-value)"
+            fillOpacity={0.1}
+            dot={false}
+            activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--card)" }}
+            animationDuration={ANIMATION_MS}
+          />
+        </AreaChart>
       ) : (
         <LineChart data={data} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
           {grid}

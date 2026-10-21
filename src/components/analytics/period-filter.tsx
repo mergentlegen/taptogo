@@ -33,7 +33,12 @@ export function PeriodFilter({
   from: string;
   to: string;
   today: string;
-  filters?: { key: FilterKey; label: string; value?: string; options: Option[] }[];
+  filters?: {
+    key: FilterKey;
+    label: string;
+    value?: string;
+    options: Option[];
+  }[];
 }) {
   const t = useTranslations();
   const router = useRouter();
@@ -51,7 +56,9 @@ export function PeriodFilter({
     }
     const query = params.toString();
     startTransition(() =>
-      router.replace((query ? `${pathname}?${query}` : pathname) as Route, { scroll: false }),
+      router.replace((query ? `${pathname}?${query}` : pathname) as Route, {
+        scroll: false,
+      }),
     );
   };
 
@@ -76,11 +83,13 @@ export function PeriodFilter({
         aria-label={t("periods.label")}
         className="flex-wrap"
       >
-        {periodPresets.map((preset) => (
-          <ToggleGroupItem key={preset} value={preset} className="px-3">
-            {t(`periods.${preset}`)}
-          </ToggleGroupItem>
-        ))}
+        {periodPresets
+          .filter((p) => p === "7d" || p === "30d" || p === "custom" || p === period)
+          .map((preset) => (
+            <ToggleGroupItem key={preset} value={preset} className="px-3">
+              {t(`periods.${preset}`)}
+            </ToggleGroupItem>
+          ))}
       </ToggleGroup>
 
       {showCustom && (

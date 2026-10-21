@@ -58,7 +58,7 @@ test.describe("signing in with every role", () => {
         await expect(page.getByTestId("admin-badge")).toBeVisible();
         await expect(page.getByRole("heading", { level: 1, name: "Обзор" })).toBeVisible();
       } else {
-        await expect(page.getByRole("heading", { level: 1, name: "Дашборд" })).toBeVisible();
+        await expect(page.getByRole("heading", { level: 1, name: "Обзор" })).toBeVisible();
       }
     });
   }

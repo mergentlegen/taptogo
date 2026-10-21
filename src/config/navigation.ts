@@ -1,20 +1,16 @@
 import {
   Boxes,
   Building,
-  FileChartColumn,
   Gauge,
   Inbox,
   LayoutDashboard,
   LifeBuoy,
   Link2,
-  MapPin,
   Nfc,
   Plug,
   ScrollText,
   Settings,
   UserCog,
-  Users,
-  UsersRound,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -39,53 +35,123 @@ export type AppNavItem = NavItem<AppNavKey, OrgPermission>;
 export type AdminNavItem = NavItem<AdminNavKey, PlatformPermission>;
 
 export const appNavigation: AppNavItem[] = [
-  { key: "dashboard", href: "/app", icon: LayoutDashboard, permission: "org.view" },
+  {
+    key: "dashboard",
+    href: "/app",
+    icon: LayoutDashboard,
+    permission: "org.view",
+  },
   { key: "cards", href: "/app/cards", icon: Nfc, permission: "org.view" },
-  { key: "locations", href: "/app/locations", icon: MapPin, permission: "org.view" },
-  { key: "employees", href: "/app/employees", icon: Users, permission: "org.view" },
-  { key: "reports", href: "/app/reports", icon: FileChartColumn, permission: "org.view" },
-  { key: "team", href: "/app/team", icon: UsersRound, permission: "org.team.manage" },
-  { key: "settings", href: "/app/settings", icon: Settings, permission: "org.view" },
-  { key: "support", href: "/app/support", icon: LifeBuoy, permission: "org.view" },
+  {
+    key: "support",
+    href: "/app/support",
+    icon: LifeBuoy,
+    permission: "org.view",
+  },
 ];
 
 /** Shown in the mobile bottom bar; everything else goes under "More". */
-export const appMobilePrimary: AppNavKey[] = ["dashboard", "cards", "locations", "reports"];
+export const appMobilePrimary: AppNavKey[] = ["dashboard", "cards", "support"];
 
-export const adminNavigation: { group: AdminNavGroupKey; items: AdminNavItem[] }[] = [
+export const adminNavigation: {
+  group: AdminNavGroupKey;
+  items: AdminNavItem[];
+}[] = [
   {
     group: "clients",
     items: [
-      { key: "overview", href: "/admin", icon: Gauge, permission: "admin.access" },
-      { key: "organizations", href: "/admin/organizations", icon: Building, permission: "admin.access" },
+      {
+        key: "overview",
+        href: "/admin",
+        icon: Gauge,
+        permission: "admin.access",
+      },
+      {
+        key: "organizations",
+        href: "/admin/organizations",
+        icon: Building,
+        permission: "admin.access",
+      },
     ],
   },
   {
     group: "cards",
     items: [
-      { key: "cards", href: "/admin/cards", icon: Nfc, permission: "admin.access" },
-      { key: "batches", href: "/admin/batches", icon: Boxes, permission: "admin.access" },
-      { key: "targets", href: "/admin/targets", icon: Link2, permission: "admin.access" },
+      {
+        key: "cards",
+        href: "/admin/cards",
+        icon: Nfc,
+        permission: "admin.access",
+      },
+      {
+        key: "batches",
+        href: "/admin/batches",
+        icon: Boxes,
+        permission: "admin.access",
+      },
+      {
+        key: "targets",
+        href: "/admin/targets",
+        icon: Link2,
+        permission: "admin.access",
+      },
     ],
   },
   {
     group: "money",
-    items: [{ key: "billing", href: "/admin/billing", icon: Wallet, permission: "admin.access" }],
+    items: [
+      {
+        key: "billing",
+        href: "/admin/billing",
+        icon: Wallet,
+        permission: "admin.access",
+      },
+    ],
   },
   {
     group: "inbox",
     items: [
-      { key: "support", href: "/admin/support", icon: LifeBuoy, permission: "admin.access" },
-      { key: "leads", href: "/admin/leads", icon: Inbox, permission: "admin.access" },
+      {
+        key: "support",
+        href: "/admin/support",
+        icon: LifeBuoy,
+        permission: "admin.access",
+      },
+      {
+        key: "leads",
+        href: "/admin/leads",
+        icon: Inbox,
+        permission: "admin.access",
+      },
     ],
   },
   {
     group: "system",
     items: [
-      { key: "integrations", href: "/admin/integrations", icon: Plug, permission: "admin.access" },
-      { key: "staff", href: "/admin/staff", icon: UserCog, permission: "admin.staff.manage" },
-      { key: "audit", href: "/admin/audit", icon: ScrollText, permission: "admin.access" },
-      { key: "settings", href: "/admin/settings", icon: Settings, permission: "admin.settings.manage" },
+      {
+        key: "integrations",
+        href: "/admin/integrations",
+        icon: Plug,
+        permission: "admin.access",
+      },
+      {
+        key: "staff",
+        href: "/admin/staff",
+        icon: UserCog,
+        permission: "admin.staff.manage",
+      },
+      {
+        key: "audit",
+        href: "/admin/audit",
+        icon: ScrollText,
+        permission: "admin.access",
+      },
+      {
+        key: "settings",
+        href: "/admin/settings",
+        icon: Settings,
+        permission: "admin.settings.manage",
+      },
     ],
   },
 ];

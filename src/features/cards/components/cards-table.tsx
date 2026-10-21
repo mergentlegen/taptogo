@@ -8,7 +8,7 @@ import { useState } from "react";
 
 import { DataTable, type dataTableFeatures } from "@/components/data/data-table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import type { CardListItem } from "@/server/services/card-service";
 
 import { cardStatuses, type CardStatus } from "../schemas";
@@ -20,11 +20,12 @@ const ALL = "all";
 export function CardsTable({
   cards,
   locations,
-  timeZone,
+  showStats = true,
 }: {
   cards: CardListItem[];
   locations: { id: string; name: string }[];
   timeZone: string;
+  showStats?: boolean;
 }) {
   const t = useTranslations("cards");
   const [status, setStatus] = useState<CardStatus | typeof ALL>(ALL);
@@ -40,7 +41,6 @@ export function CardsTable({
           <Link href={`/app/cards/${info.row.original.id}` as Route} className="font-medium hover:underline">
             {info.row.original.label}
           </Link>
-          <span className="font-mono text-xs text-muted-foreground">{info.row.original.code}</span>
         </div>
       ),
     }),
@@ -49,30 +49,18 @@ export function CardsTable({
       header: t("columns.location"),
       cell: (info) => info.getValue() || "—",
     }),
-    helper.accessor((row) => row.employeeName ?? "", {
-      id: "employee",
-      header: t("columns.employee"),
-      cell: (info) => info.getValue() || "—",
-    }),
-    helper.accessor("type", { header: t("columns.type"), cell: (info) => t(`types.${info.getValue()}`) }),
     helper.accessor("status", {
       header: t("columns.status"),
-      cell: (info) => <CardStatusBadge status={info.getValue()} />,
+      cell: (info) => <CardStatusBadge customer status={info.getValue()} />,
     }),
-    helper.accessor("taps30", {
-      header: t("columns.taps30"),
-      cell: (info) => <span className="tabular-nums">{formatNumber(info.getValue())}</span>,
-    }),
-    helper.accessor((row) => row.lastTapAt ?? "", {
-      id: "lastTap",
-      header: t("columns.lastTap"),
-      cell: (info) =>
-        info.getValue() ? (
-          <span className="whitespace-nowrap tabular-nums">{formatDateTime(info.getValue(), timeZone)}</span>
-        ) : (
-          <span className="text-muted-foreground">{t("never")}</span>
-        ),
-    }),
+    ...(showStats
+      ? [
+          helper.accessor("taps30", {
+            header: t("columns.taps30"),
+            cell: (info) => <span className="tabular-nums">{formatNumber(info.getValue())}</span>,
+          }),
+        ]
+      : []),
   ]);
 
   return (
@@ -84,18 +72,20 @@ export function CardsTable({
         <Link href={`/app/cards/${card.id}` as Route} className="grid gap-1.5">
           <span className="flex items-start justify-between gap-2">
             <span className="font-medium">{card.label}</span>
-            <CardStatusBadge status={card.status} />
+            <CardStatusBadge customer status={card.status} />
           </span>
           <span className="text-sm text-muted-foreground">
             {[card.locationName, card.employeeName].filter(Boolean).join(" · ") || "—"}
           </span>
-          <span className="flex justify-between text-sm">
-            <span className="text-muted-foreground">{t("columns.taps30")}</span>
-            <span className="font-medium tabular-nums">{formatNumber(card.taps30)}</span>
-          </span>
+          {showStats && (
+            <span className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{t("columns.taps30")}</span>
+              <span className="font-medium tabular-nums">{formatNumber(card.taps30)}</span>
+            </span>
+          )}
         </Link>
       )}
-      initialSorting={[{ id: "taps30", desc: true }]}
+      initialSorting={showStats ? [{ id: "taps30", desc: true }] : [{ id: "label", desc: false }]}
       searchPlaceholder={t("search")}
       emptyText={cards.length === 0 ? t("empty") : t("noResults")}
       filter={(row) =>
@@ -113,7 +103,7 @@ export function CardsTable({
                 .filter((s) => s !== "UNASSIGNED")
                 .map((s) => (
                   <SelectItem key={s} value={s}>
-                    {t(`statuses.${s}`)}
+                    {t(`customerStatuses.${s}`)}
                   </SelectItem>
                 ))}
             </SelectContent>

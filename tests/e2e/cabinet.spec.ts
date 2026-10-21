@@ -22,14 +22,14 @@ test.describe("dashboard", () => {
     await signIn(page, accounts.owner);
 
     await expect(page.getByTestId("kpi-taps")).toContainText(/\d/);
-    await expect(page.getByTestId("kpi-conversion")).toContainText("Конверсия ≈");
-    await expect(page.getByText("Касания по дням")).toBeVisible();
-    await expect(page.getByText("Когда прикладывают карточки")).toBeVisible();
-    const all = await page.getByTestId("kpi-taps").locator("p").nth(1).textContent();
+    await expect(page.getByTestId("kpi-conversion")).toHaveCount(0);
+    await expect(page.getByText("Переходы по дням", { exact: true })).toBeVisible();
+    await expect(page.getByText("Когда прикладывают карточки")).toHaveCount(0);
+    const all = await page.getByTestId("kpi-taps").locator("dd").textContent();
 
     await page.getByRole("radio", { name: "7 дней" }).click();
     await expect(page).toHaveURL(/period=7d/);
-    await expect(page.getByTestId("kpi-taps").locator("p").nth(1)).not.toHaveText(all ?? "");
+    await expect(page.getByTestId("kpi-taps").locator("dd")).not.toHaveText(all ?? "");
     expect(errors).toEqual([]);
   });
 
@@ -58,7 +58,8 @@ test.describe("organization isolation via URL", () => {
   test("a foreign id in dashboard filters is ignored", async ({ page }) => {
     await signIn(page, accounts.owner);
     await page.goto(`/app?card=${beautyCard.id}`);
-    await expect(page.getByRole("combobox", { name: "Карточка" })).toContainText("Все");
+    await expect(page.getByRole("combobox", { name: "Карточка" })).toHaveCount(0);
+    await expect(page.getByTestId("kpi-taps")).toContainText(/\d/);
   });
 
   test("reports contain only the organization's own data, whatever the query says", async ({ page }) => {
@@ -200,10 +201,10 @@ test.describe("cards", () => {
     await page.getByRole("button", { name: "Сохранить" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Стол у окна" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Поставить на паузу" }).click();
-    await expect(page.getByText("На паузе", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Включить" }).click();
-    await expect(page.getByText("Активна", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Отключить карту" }).click();
+    await expect(page.getByText("Выключена", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Включить карту" }).click();
+    await expect(page.getByText("Работает", { exact: true })).toBeVisible();
   });
 });
 

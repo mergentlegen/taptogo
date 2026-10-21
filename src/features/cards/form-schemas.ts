@@ -8,11 +8,13 @@ const optionalId = z.union([idSchema, z.literal("").transform(() => null), z.nul
 export const updateCardSchema = z.object({
   cardId: idSchema,
   label: textSchema(80),
-  locationId: optionalId,
+  locationId: z.uuid({ error: "Выберите заведение для этой карты" }),
   employeeId: optionalId,
-  targetId: optionalId,
 });
 export type UpdateCardInput = z.input<typeof updateCardSchema>;
 
 export const cardIdSchema = z.object({ cardId: idSchema });
-export const setCardPausedSchema = z.object({ cardId: idSchema, paused: z.boolean() });
+export const setCardPausedSchema = z.object({
+  cardId: idSchema,
+  paused: z.boolean(),
+});

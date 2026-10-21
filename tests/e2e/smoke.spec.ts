@@ -47,7 +47,7 @@ test.describe("layouts", () => {
   test("client cabinet navigation works", async ({ page, isMobile }) => {
     const errors = collectConsoleErrors(page);
     await signIn(page, accounts.owner);
-    await expect(page.getByRole("heading", { level: 1, name: "Дашборд" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Обзор" })).toBeVisible();
 
     const nav = page.getByRole("navigation", { name: isMobile ? "Нижняя навигация" : "Основная навигация" });
     await nav.getByRole("link", { name: "Карточки" }).click();

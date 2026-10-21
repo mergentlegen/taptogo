@@ -1,10 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 
 import { PeriodFilter } from "@/components/analytics/period-filter";
 import { PageHeader } from "@/components/layout/page-header";
 import { StatsGate } from "@/components/subscription/stats-gate";
+import { getEnv } from "@/env";
 import { DashboardSkeleton, DashboardView } from "@/features/analytics/components/dashboard-view";
 import { toLocalDate } from "@/lib/dates";
 import { resolvePeriod, searchParam, type Period } from "@/lib/period";
@@ -24,13 +25,15 @@ async function DashboardData({
   ctx,
   period,
   filter,
+  venueCount,
 }: {
   ctx: OrgContext;
   period: Period;
   filter: DashboardFilter;
+  venueCount: number;
 }) {
   const data = await getServices().analytics.dashboard(ctx, period, filter);
-  return <DashboardView data={data} />;
+  return <DashboardView data={data} period={period} venueCount={venueCount} />;
 }
 
 export default async function DashboardPage({ searchParams }: PageProps<"/app">) {
@@ -42,14 +45,14 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
 
   const today = toLocalDate(getContainer().clock(), ctx.timeZone);
   const period = resolvePeriod(
-    { period: searchParam(params.period), from: searchParam(params.from), to: searchParam(params.to) },
+    {
+      period: searchParam(params.period),
+      from: searchParam(params.from),
+      to: searchParam(params.to),
+    },
     today,
   );
-  const requested = {
-    locationId: searchParam(params.location),
-    employeeId: searchParam(params.employee),
-    cardId: searchParam(params.card),
-  };
+  const requested = { locationId: searchParam(params.location) };
 
   const [subscription, options] = await Promise.all([
     services.subscription.view(ctx),
@@ -60,15 +63,16 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
     locationId: options.locations.some((l) => l.id === requested.locationId)
       ? requested.locationId
       : undefined,
-    employeeId: options.employees.some((e) => e.id === requested.employeeId)
-      ? requested.employeeId
-      : undefined,
-    cardId: options.cards.some((c) => c.id === requested.cardId) ? requested.cardId : undefined,
   };
 
   return (
     <>
       <PageHeader title={t("app.pages.dashboard.title")} description={t("app.pages.dashboard.description")} />
+      {getEnv().DATA_SOURCE === "mock" && (
+        <p role="status" className="mb-5 border-l-2 border-primary pl-3 text-sm text-muted-foreground">
+          {t("dashboard.demoNotice")}
+        </p>
+      )}
       <div className="mb-4">
         <PeriodFilter
           period={period.preset}
@@ -78,21 +82,9 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
           filters={[
             {
               key: "location",
-              label: t("filters.location"),
+              label: t("dashboard.venue"),
               value: filter.locationId,
               options: options.locations,
-            },
-            {
-              key: "employee",
-              label: t("filters.employee"),
-              value: filter.employeeId,
-              options: options.employees,
-            },
-            {
-              key: "card",
-              label: t("filters.card"),
-              value: filter.cardId,
-              options: options.cards.map((c) => ({ id: c.id, name: c.label })),
             },
           ]}
         />
@@ -100,9 +92,26 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
       {/* Guards ran above, so 403/404 statuses are final before anything streams. */}
       <StatsGate subscription={subscription}>
         <Suspense fallback={<DashboardSkeleton />}>
-          <DashboardData ctx={ctx} period={period} filter={filter} />
+          <DashboardData
+            ctx={ctx}
+            period={period}
+            filter={{ locationId: filter.locationId }}
+            venueCount={filter.locationId ? 1 : options.locations.length}
+          />
         </Suspense>
       </StatsGate>
+      {subscription.statsAllowed && access.permissions.includes("org.export") && (
+        <div className="mt-6 border-t pt-4">
+          <a
+            className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            href={
+              `/app/reports/export?format=xlsx&period=${period.preset}&from=${period.from}&to=${period.to}` as Route
+            }
+          >
+            Скачать общий отчёт Excel за этот период
+          </a>
+        </div>
+      )}
     </>
   );
 }

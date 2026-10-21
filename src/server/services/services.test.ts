@@ -25,7 +25,12 @@ beforeEach(async () => {
   const [coffee] = await repos.organizations.list({ search: "Coffee" });
   const [beauty] = await repos.organizations.list({ search: "Aru" });
   const owner = await repos.users.findByEmail("owner@coffeepoint.kz");
-  ownerA = { userId: owner!.id, organizationId: coffee!.id, timeZone: "Asia/Almaty", role: "OWNER" };
+  ownerA = {
+    userId: owner!.id,
+    organizationId: coffee!.id,
+    timeZone: "Asia/Almaty",
+    role: "OWNER",
+  };
   orgB = beauty!.id;
 });
 
@@ -34,7 +39,9 @@ const invalid = { code: "VALIDATION" };
 
 describe("organization isolation (OWNER of A vs data of B)", () => {
   it("cannot open or change a card of B", async () => {
-    const [cardB] = await container.repositories.cards.list({ organizationId: orgB });
+    const [cardB] = await container.repositories.cards.list({
+      organizationId: orgB,
+    });
 
     expect(await services.cards.detail(ownerA, cardB!.id)).toBeNull();
     await expect(
@@ -56,9 +63,15 @@ describe("organization isolation (OWNER of A vs data of B)", () => {
       organizationId: ownerA.organizationId,
       statuses: ["ACTIVE"],
     });
-    const [locationB] = await container.repositories.locations.list({ organizationId: orgB });
-    const [employeeB] = await container.repositories.employees.list({ organizationId: orgB });
-    const [targetB] = await container.repositories.targets.list({ organizationId: orgB });
+    const [locationB] = await container.repositories.locations.list({
+      organizationId: orgB,
+    });
+    const [employeeB] = await container.repositories.employees.list({
+      organizationId: orgB,
+    });
+    const [targetB] = await container.repositories.targets.list({
+      organizationId: orgB,
+    });
     const base = {
       cardId: cardA!.id,
       label: cardA!.label,
@@ -79,14 +92,26 @@ describe("organization isolation (OWNER of A vs data of B)", () => {
   });
 
   it("cannot read, edit or delete employees and locations of B", async () => {
-    const [employeeB] = await container.repositories.employees.list({ organizationId: orgB });
-    const [locationB] = await container.repositories.locations.list({ organizationId: orgB });
-    const input = { name: "x", position: null, locationId: null, isActive: true };
+    const [employeeB] = await container.repositories.employees.list({
+      organizationId: orgB,
+    });
+    const [locationB] = await container.repositories.locations.list({
+      organizationId: orgB,
+    });
+    const input = {
+      name: "x",
+      position: null,
+      locationId: null,
+      isActive: true,
+    };
 
     await expect(services.employees.update(ownerA, employeeB!.id, input)).rejects.toMatchObject(notFound);
     await expect(services.employees.delete(ownerA, employeeB!.id)).rejects.toMatchObject(notFound);
     await expect(
-      services.employees.create(ownerA, { ...input, locationId: locationB!.id }),
+      services.employees.create(ownerA, {
+        ...input,
+        locationId: locationB!.id,
+      }),
     ).rejects.toMatchObject(invalid);
     expect(await services.locations.detail(ownerA, locationB!.id)).toBeNull();
     await expect(services.locations.requestTwogisChange(ownerA, locationB!.id, "x")).rejects.toMatchObject(
@@ -95,15 +120,23 @@ describe("organization isolation (OWNER of A vs data of B)", () => {
   });
 
   it("ignores B's ids in dashboard filters and never mixes in B's numbers", async () => {
-    const [cardB] = await container.repositories.cards.list({ organizationId: orgB });
+    const [cardB] = await container.repositories.cards.list({
+      organizationId: orgB,
+    });
     const period = resolvePeriod({ period: "30d" }, TODAY);
     const unfiltered = await services.analytics.dashboard(ownerA, period, {});
-    const forged = await services.analytics.dashboard(ownerA, period, { cardId: cardB!.id });
+    const forged = await services.analytics.dashboard(ownerA, period, {
+      cardId: cardB!.id,
+    });
 
     expect(forged.filter).toEqual({});
     expect(forged.kpis.taps.value).toBe(unfiltered.kpis.taps.value);
     const ownCards = new Set(
-      (await container.repositories.cards.list({ organizationId: ownerA.organizationId })).map((c) => c.id),
+      (
+        await container.repositories.cards.list({
+          organizationId: ownerA.organizationId,
+        })
+      ).map((c) => c.id),
     );
     expect(unfiltered.topCards.every((c) => ownCards.has(c.id))).toBe(true);
   });
@@ -120,7 +153,11 @@ describe("organization isolation (OWNER of A vs data of B)", () => {
     const [memberB] = await container.repositories.memberships.listByOrganization(orgB);
     const invitationB = (
       await container.repositories.invitations.listByOrganization(
-        (await container.repositories.organizations.list({ search: "AquaDrive" }))[0]!.id,
+        (
+          await container.repositories.organizations.list({
+            search: "AquaDrive",
+          })
+        )[0]!.id,
       )
     )[0];
 
@@ -135,6 +172,13 @@ describe("dashboard", () => {
     const data = await services.analytics.dashboard(ownerA, resolvePeriod({ period: "30d" }, TODAY), {});
 
     expect(data.daily).toHaveLength(30);
+    expect(data.daily[0]!.reviewChange).not.toBeNull();
+    expect(data.daily.reduce((sum, day) => sum + (day.reviewChange ?? 0), 0)).toBe(
+      data.kpis.newReviews.value,
+    );
+    for (let i = 1; i < data.daily.length; i++) {
+      expect(data.daily[i]!.reviewChange).toBe(data.daily[i]!.reviewCount! - data.daily[i - 1]!.reviewCount!);
+    }
     expect(data.daily.reduce((sum, d) => sum + d.taps, 0)).toBe(data.kpis.taps.value);
     expect(data.sources.NFC + data.sources.QR).toBe(data.kpis.taps.value);
     expect(data.kpis.uniqueVisitors.value).toBeLessThanOrEqual(data.kpis.taps.value);
@@ -147,10 +191,14 @@ describe("dashboard", () => {
   });
 
   it("narrows to one location", async () => {
-    const [location] = await container.repositories.locations.list({ organizationId: ownerA.organizationId });
+    const [location] = await container.repositories.locations.list({
+      organizationId: ownerA.organizationId,
+    });
     const period = resolvePeriod({ period: "30d" }, TODAY);
     const all = await services.analytics.dashboard(ownerA, period, {});
-    const one = await services.analytics.dashboard(ownerA, period, { locationId: location!.id });
+    const one = await services.analytics.dashboard(ownerA, period, {
+      locationId: location!.id,
+    });
 
     expect(one.filter.locationId).toBe(location!.id);
     expect(one.kpis.taps.value).toBeGreaterThan(0);
@@ -170,6 +218,75 @@ describe("dashboard", () => {
 });
 
 describe("cards", () => {
+  it("chooses the verified review link of the selected location instead of a supplied target", async () => {
+    const repos = container.repositories;
+    const [first, second] = await repos.locations.list({
+      organizationId: ownerA.organizationId,
+    });
+    const [card] = await repos.cards.list({
+      organizationId: ownerA.organizationId,
+      locationId: first!.id,
+    });
+    const destination = (
+      await repos.targets.list({
+        organizationId: ownerA.organizationId,
+        isVerified: true,
+      })
+    ).find((t) => t.locationId === second!.id);
+    const updated = await services.cards.update(ownerA, {
+      cardId: card!.id,
+      label: card!.label,
+      locationId: second!.id,
+      employeeId: null,
+      targetId: card!.targetId,
+    });
+    expect(updated.locationId).toBe(second!.id);
+    expect(updated.targetId).toBe(destination!.id);
+  });
+
+  it("does not let an active card lose its destination", async () => {
+    const [card] = await container.repositories.cards.list({
+      organizationId: ownerA.organizationId,
+      statuses: ["ACTIVE"],
+    });
+    await expect(
+      services.cards.update(ownerA, {
+        cardId: card!.id,
+        label: "Changed",
+        locationId: null,
+        employeeId: null,
+        targetId: null,
+      }),
+    ).rejects.toMatchObject(invalid);
+    expect((await container.repositories.cards.findById(card!.id))?.targetId).toBe(card!.targetId);
+  });
+
+  it("rejects a location with no verified review link without changing the card", async () => {
+    const repos = container.repositories;
+    const [card] = await repos.cards.list({
+      organizationId: ownerA.organizationId,
+      statuses: ["ACTIVE"],
+    });
+    const location = await repos.locations.create({
+      organizationId: ownerA.organizationId,
+      name: "New",
+      address: "Almaty",
+      twogisFirmId: null,
+      twogisProfileUrl: null,
+      isActive: true,
+    });
+    await expect(
+      services.cards.update(ownerA, {
+        cardId: card!.id,
+        label: "Changed",
+        locationId: location.id,
+        employeeId: null,
+        targetId: null,
+      }),
+    ).rejects.toMatchObject(invalid);
+    expect((await repos.cards.findById(card!.id))?.locationId).toBe(card!.locationId);
+  });
+
   it("lists cards with 30-day taps, busiest first", async () => {
     const cards = await services.cards.list(ownerA);
     expect(cards.length).toBeGreaterThan(5);
@@ -205,7 +322,9 @@ describe("cards", () => {
       statuses: ["ACTIVE"],
     });
     const target = await container.repositories.targets.findById(card!.targetId!);
-    await container.repositories.targets.update(target!.id, { isVerified: false });
+    await container.repositories.targets.update(target!.id, {
+      isVerified: false,
+    });
 
     await expect(
       services.cards.update(ownerA, {
@@ -230,8 +349,14 @@ describe("team", () => {
   });
 
   it("invites by email, replacing an earlier pending invitation", async () => {
-    await services.team.invite(ownerA, { email: "New@Coffeepoint.kz", role: "VIEWER" });
-    await services.team.invite(ownerA, { email: "new@coffeepoint.kz", role: "MANAGER" });
+    await services.team.invite(ownerA, {
+      email: "New@Coffeepoint.kz",
+      role: "VIEWER",
+    });
+    await services.team.invite(ownerA, {
+      email: "new@coffeepoint.kz",
+      role: "MANAGER",
+    });
 
     const { invitations } = await services.team.list(ownerA);
     const mine = invitations.filter((i) => i.email === "new@coffeepoint.kz");
@@ -242,7 +367,10 @@ describe("team", () => {
 
   it("refuses to invite an existing member", async () => {
     await expect(
-      services.team.invite(ownerA, { email: "manager@coffeepoint.kz", role: "VIEWER" }),
+      services.team.invite(ownerA, {
+        email: "manager@coffeepoint.kz",
+        role: "VIEWER",
+      }),
     ).rejects.toMatchObject({
       code: "CONFLICT",
     });
@@ -255,7 +383,9 @@ describe("reports", () => {
       organizationId: ownerA.organizationId,
       statuses: ["ACTIVE"],
     });
-    await container.repositories.cards.update(card!.id, { label: '=HYPERLINK("http://evil")' });
+    await container.repositories.cards.update(card!.id, {
+      label: '=HYPERLINK("http://evil")',
+    });
     const report = await services.reports.build(ownerA, resolvePeriod({ period: "30d" }, TODAY), "cards");
 
     const csv = await services.reports.export(ownerA, report, "csv");
@@ -348,7 +478,9 @@ describe("permission checks inside services (not only in actions)", () => {
 describe("organization view of the repositories", () => {
   it("drops another organization's location ids instead of trusting them", async () => {
     const { forOrganization } = await import("@/server/repositories/tenant");
-    const [foreign] = await container.repositories.locations.list({ organizationId: orgB });
+    const [foreign] = await container.repositories.locations.list({
+      organizationId: orgB,
+    });
     const snapshots = await forOrganization(
       container.repositories,
       ownerA.organizationId,

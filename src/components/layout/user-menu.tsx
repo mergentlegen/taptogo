@@ -1,7 +1,8 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut, Settings, Users } from "lucide-react";
 import { useTranslations } from "next-intl";
+import Link from "next/link";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,19 @@ function initialsOf(name: string): string {
     .toUpperCase();
 }
 
-export function UserMenu({ name, email, roleLabel }: { name: string; email: string; roleLabel: string }) {
+export function UserMenu({
+  name,
+  email,
+  roleLabel,
+  cabinet = false,
+  canManageTeam = false,
+}: {
+  name: string;
+  email: string;
+  roleLabel: string;
+  cabinet?: boolean;
+  canManageTeam?: boolean;
+}) {
   const t = useTranslations("app.userMenu");
 
   return (
@@ -52,6 +65,25 @@ export function UserMenu({ name, email, roleLabel }: { name: string; email: stri
           <span className="text-xs font-normal text-muted-foreground">{roleLabel}</span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {cabinet && (
+          <>
+            <DropdownMenuItem asChild>
+              <Link href="/app/settings">
+                <Settings />
+                {t("settings")}
+              </Link>
+            </DropdownMenuItem>
+            {canManageTeam && (
+              <DropdownMenuItem asChild>
+                <Link href="/app/team">
+                  <Users />
+                  {t("team")}
+                </Link>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+          </>
+        )}
         <form action={signOutAction}>
           <DropdownMenuItem asChild>
             <button type="submit" className="w-full">

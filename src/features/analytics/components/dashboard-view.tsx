@@ -1,260 +1,136 @@
-import { Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import type { Route } from "next";
 import { getTranslations } from "next-intl/server";
+import Link from "next/link";
 
-import { ChartTable } from "@/components/charts/chart-table";
-import { Heatmap } from "@/components/charts/heatmap";
-import { ShareBar } from "@/components/charts/share-bar";
-import { TimeSeriesChart } from "@/components/charts/time-series-chart";
-import { TopList } from "@/components/charts/top-list";
-import { EmptyState } from "@/components/data/empty-state";
-import { StatCard } from "@/components/data/stat-card";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  formatChange,
-  formatIsoDate,
-  formatNumber,
-  formatPercent,
-  formatRating,
-  formatRatingDelta,
-} from "@/lib/format";
-import type { Comparison, DashboardData } from "@/server/services/analytics-service";
+import { formatChange, formatIsoDate, formatNumber, formatRating } from "@/lib/format";
+import type { Period } from "@/lib/period";
+import type { DashboardData } from "@/server/services/analytics-service";
 
-function direction(delta: number): "up" | "down" | "flat" {
-  return delta > 0 ? "up" : delta < 0 ? "down" : "flat";
-}
+import { DashboardChart } from "./dashboard-chart";
 
-function relativeChange(c: Comparison<number | null>) {
-  if (c.value === null || c.previous === null) return null;
-  const text = formatChange(c.value, c.previous);
-  return text ? { text, direction: direction(c.value - c.previous) } : null;
-}
-
-function ratingChange(c: Comparison<number | null>) {
-  if (c.value === null || c.previous === null) return null;
-  return {
-    text: formatRatingDelta(c.value - c.previous),
-    direction: direction(Math.round((c.value - c.previous) * 100)),
-  };
-}
-
-export async function DashboardView({ data }: { data: DashboardData }) {
+export async function DashboardView({
+  data,
+  period,
+  venueCount,
+}: {
+  data: DashboardData;
+  period: Period;
+  venueCount: number;
+}) {
   const t = await getTranslations("dashboard");
   const { kpis } = data;
-  const caption = (change: unknown) => (change ? t("kpi.vsPrevious") : t("kpi.noComparison"));
-  const tapsChange = relativeChange(kpis.taps);
-  const uniqueChange = relativeChange(kpis.uniqueVisitors);
-  const ratingDelta = ratingChange(kpis.rating);
-  const reviewsChange = relativeChange(kpis.newReviews);
-  const conversionChange = relativeChange(kpis.conversion);
-  const marker = data.installDate ? { date: data.installDate, label: t("charts.installMarker") } : null;
-
   return (
-    <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard
-          testId="kpi-taps"
-          label={t("kpi.taps")}
-          hint={t("kpi.tapsHint")}
-          value={formatNumber(kpis.taps.value)}
-          change={tapsChange}
-          changeCaption={caption(tapsChange)}
-        />
-        <StatCard
-          testId="kpi-unique"
-          label={t("kpi.uniqueVisitors")}
-          hint={t("kpi.uniqueHint")}
-          value={formatNumber(kpis.uniqueVisitors.value)}
-          change={uniqueChange}
-          changeCaption={caption(uniqueChange)}
-        />
-        <StatCard
-          testId="kpi-rating"
-          label={t("kpi.rating")}
-          hint={t("kpi.ratingHint")}
-          value={kpis.rating.value === null ? t("kpi.noValue") : formatRating(kpis.rating.value)}
-          change={ratingDelta}
-          changeCaption={caption(ratingDelta)}
-        />
-        <StatCard
-          testId="kpi-reviews"
-          label={t("kpi.newReviews")}
-          value={kpis.newReviews.value === null ? t("kpi.noValue") : formatNumber(kpis.newReviews.value)}
-          change={reviewsChange}
-          changeCaption={caption(reviewsChange)}
-        />
-        <StatCard
-          testId="kpi-conversion"
-          label={t("kpi.conversion")}
-          hint={t("kpi.conversionHint")}
-          value={kpis.conversion.value === null ? t("kpi.noValue") : formatPercent(kpis.conversion.value)}
-          change={conversionChange}
-          changeCaption={caption(conversionChange)}
-        />
-      </div>
+    <div className="grid gap-6">
+      <section aria-labelledby="result-period" className="grid gap-2">
+        <h2 id="result-period" className="text-lg font-semibold">
+          {period.preset === "today"
+            ? t("summary.today")
+            : period.preset === "custom"
+              ? t("summary.customPeriod")
+              : t("summary.period", { days: period.days })}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {formatIsoDate(period.from, "long")} — {formatIsoDate(period.to, "long")}
+        </p>
+        <dl className="mt-3 grid grid-cols-3 divide-x border-y">
+          <div className="py-5 pr-3 sm:pr-6" data-testid="kpi-taps">
+            <dt className="min-h-10 text-sm text-muted-foreground sm:min-h-0">Переходы</dt>
+            <dd className="mt-2 text-2xl font-semibold tracking-tight tabular-nums sm:text-4xl">
+              {formatNumber(kpis.taps.value)}
+            </dd>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {formatChange(kpis.taps.value, kpis.taps.previous) ?? "NFC + QR"}
+              {kpis.taps.previous > 0 ? " к прошлому периоду" : ""}
+            </p>
+          </div>
+          <div className="px-3 py-5 sm:px-6" data-testid="kpi-reviews">
+            <dt className="min-h-10 text-sm text-muted-foreground sm:min-h-0">Изменение отзывов</dt>
+            <dd className="mt-2 text-2xl font-semibold tracking-tight tabular-nums sm:text-4xl">
+              {kpis.newReviews.value === null
+                ? "—"
+                : `${kpis.newReviews.value > 0 ? "+" : ""}${formatNumber(kpis.newReviews.value)}`}
+            </dd>
+            <p className="mt-2 text-xs text-muted-foreground">Из всех источников</p>
+          </div>
+          <div className="py-5 pl-3 sm:pl-6" data-testid="kpi-rating">
+            <dt className="min-h-10 text-sm text-muted-foreground sm:min-h-0">
+              {venueCount > 1 ? "Средний рейтинг" : "Рейтинг 2ГИС"}
+            </dt>
+            <dd className="mt-2 text-2xl font-semibold tracking-tight tabular-nums sm:text-4xl">
+              {kpis.rating.value === null ? "—" : formatRating(kpis.rating.value)}
+              <span className="ml-1 text-sm font-normal text-muted-foreground">/ 5</span>
+            </dd>
+            <p className="mt-2 text-xs text-muted-foreground">На конец периода</p>
+          </div>
+        </dl>
+      </section>
+      <DashboardChart daily={data.daily} />
+      <details className="text-sm text-muted-foreground">
+        <summary className="w-fit cursor-pointer py-1 underline-offset-4 hover:text-foreground hover:underline">
+          Как считаем
+        </summary>
+        <div className="mt-2 max-w-3xl space-y-2 leading-relaxed">
+          <p>{t("attribution")}</p>
+          <p>
+            Переходы — это открытия ссылки карты. Боты и повторные переходы в течение 30 минут не учитываются.
+          </p>
+        </div>
+      </details>
+      <section aria-labelledby="used-cards-title">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 id="used-cards-title" className="font-semibold">
+            Переходы по картам
+          </h2>
+          <Link href="/app/cards" className="text-sm text-primary underline-offset-4 hover:underline">
+            {t("allCards")}
+          </Link>
+        </div>
 
-      {!data.hasTaps ? (
-        <EmptyState icon={Sparkles} title={t("empty.title")} text={t("empty.text")}>
-          <ul className="grid max-w-md gap-1 text-left text-sm text-muted-foreground">
-            <li>• {t("empty.tip1")}</li>
-            <li>• {t("empty.tip2")}</li>
-            <li>• {t("empty.tip3")}</li>
+        {data.topCards.length ? (
+          <ul className="divide-y">
+            {data.topCards.map((c) => (
+              <li key={c.id} className="grid gap-2 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                  <div>
+                    <Link
+                      href={`/app/cards/${c.id}` as Route}
+                      className="font-medium underline-offset-4 hover:underline"
+                    >
+                      {t("summary.card", { name: c.label })}
+                    </Link>
+                    <p className="text-sm text-muted-foreground">{c.location}</p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-3 text-sm tabular-nums">
+                    {t("summary.cardTaps", { count: c.taps })}
+                    <ArrowRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                  </span>
+                </div>
+                <div aria-hidden="true" className="h-1 overflow-hidden rounded-sm bg-muted">
+                  <div
+                    className="h-full rounded-sm bg-primary/70"
+                    style={{
+                      width: `${data.topCards[0]?.taps ? (c.taps / data.topCards[0].taps) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
+              </li>
+            ))}
           </ul>
-        </EmptyState>
-      ) : (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("charts.tapsTitle")}</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4">
-              <TimeSeriesChart
-                kind="bar"
-                label={t("charts.taps")}
-                color="var(--chart-1)"
-                data={data.daily.map((d) => ({ date: d.date, value: d.taps }))}
-                marker={marker}
-                ariaLabel={`${t("charts.tapsTitle")}: ${formatNumber(kpis.taps.value)}`}
-              />
-              <ChartTable
-                summary={t("charts.showTable")}
-                headers={[t("charts.date"), t("charts.taps"), t("charts.reviews")]}
-                rows={data.daily.map((d) => [
-                  formatIsoDate(d.date, "long"),
-                  formatNumber(d.taps),
-                  d.reviewCount === null ? "—" : formatNumber(d.reviewCount),
-                ])}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("charts.reviewsTitle")}</CardTitle>
-              <CardDescription>{t("charts.reviewsDescription")}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {data.hasRatings ? (
-                <TimeSeriesChart
-                  kind="line"
-                  label={t("charts.reviews")}
-                  color="var(--chart-2)"
-                  data={data.daily.map((d) => ({ date: d.date, value: d.reviewCount }))}
-                  marker={marker}
-                  tightDomain
-                  height={180}
-                  ariaLabel={t("charts.reviewsTitle")}
-                />
-              ) : (
-                <p className="py-6 text-center text-sm text-muted-foreground">{t("noRatings")}</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("charts.heatmapTitle")}</CardTitle>
-                <CardDescription>{t("charts.heatmapDescription")}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Heatmap cells={data.heatmap} />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("charts.topCards")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <TopList
-                  emptyText={t("charts.topEmpty")}
-                  items={data.topCards.map((c) => ({
-                    id: c.id,
-                    label: c.label,
-                    sublabel: c.location,
-                    value: c.taps,
-                    href: `/app/cards/${c.id}` as Route,
-                  }))}
-                />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("charts.topEmployees")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <TopList
-                  emptyText={t("charts.topEmpty")}
-                  items={data.topEmployees.map((e) => ({ id: e.id, label: e.name, value: e.taps }))}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("charts.sources")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ShareBar
-                  ariaLabel={t("charts.sources")}
-                  segments={[
-                    { key: "nfc", label: t("charts.NFC"), value: data.sources.NFC, color: "var(--chart-1)" },
-                    { key: "qr", label: t("charts.QR"), value: data.sources.QR, color: "var(--chart-2)" },
-                  ]}
-                />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("charts.platforms")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ShareBar
-                  ariaLabel={t("charts.platforms")}
-                  segments={[
-                    {
-                      key: "ios",
-                      label: t("charts.IOS"),
-                      value: data.platforms.IOS,
-                      color: "var(--chart-1)",
-                    },
-                    {
-                      key: "android",
-                      label: t("charts.ANDROID"),
-                      value: data.platforms.ANDROID,
-                      color: "var(--chart-2)",
-                    },
-                    {
-                      key: "other",
-                      label: t("charts.OTHER"),
-                      value: data.platforms.OTHER,
-                      color: "var(--chart-3)",
-                    },
-                  ]}
-                />
-              </CardContent>
-            </Card>
-          </div>
-        </>
-      )}
+        ) : (
+          <p className="text-sm text-muted-foreground">{t("charts.topEmpty")}</p>
+        )}
+      </section>
     </div>
   );
 }
 
-/** Placeholder with the same layout while statistics are computed. */
 export function DashboardSkeleton() {
   return (
-    <div className="grid gap-4" aria-busy="true">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} className="h-28" />
-        ))}
-      </div>
+    <div className="grid gap-6" aria-busy="true">
+      <Skeleton className="h-32" />
       <Skeleton className="h-80" />
-      <Skeleton className="h-64" />
     </div>
   );
 }

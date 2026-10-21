@@ -92,7 +92,6 @@ export function CardActions({ detail }: { detail: CardDetail }) {
 
 function EditCardDialog({ detail }: { detail: CardDetail }) {
   const t = useTranslations("cards.actions");
-  const tTargets = useTranslations("cards.targetTypes");
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
@@ -104,7 +103,6 @@ function EditCardDialog({ detail }: { detail: CardDetail }) {
       label: card.label,
       locationId: card.locationId ?? "",
       employeeId: card.employeeId ?? "",
-      targetId: card.targetId ?? "",
     },
   });
 
@@ -122,7 +120,7 @@ function EditCardDialog({ detail }: { detail: CardDetail }) {
   );
 
   const select = (
-    name: "locationId" | "employeeId" | "targetId",
+    name: "locationId" | "employeeId",
     label: string,
     items: { id: string; name: string }[],
     hint?: string,
@@ -130,17 +128,20 @@ function EditCardDialog({ detail }: { detail: CardDetail }) {
     <Controller
       control={form.control}
       name={name}
-      render={({ field }) => (
-        <FormField label={label} hint={hint}>
+      render={({ field, fieldState }) => (
+        <FormField label={label} hint={hint} error={fieldState.error?.message}>
           <Select
             value={field.value ? field.value : NONE}
-            onValueChange={(v) => field.onChange(v === NONE ? "" : v)}
+            onValueChange={(v) => {
+              field.onChange(v === NONE ? "" : v);
+              if (name === "locationId") form.setValue("employeeId", "");
+            }}
           >
             <SelectTrigger className="w-full">
-              <SelectValue />
+              <SelectValue placeholder="Выберите заведение" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE}>{t("none")}</SelectItem>
+              {name === "employeeId" && <SelectItem value={NONE}>{t("none")}</SelectItem>}
               {items.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
                   {item.name}
@@ -154,7 +155,21 @@ function EditCardDialog({ detail }: { detail: CardDetail }) {
   );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (value) {
+          form.reset({
+            cardId: card.id,
+            label: card.label,
+            locationId: card.locationId ?? "",
+            employeeId: card.employeeId ?? "",
+          });
+          setFormError(null);
+        }
+        setOpen(value);
+      }}
+    >
       <DialogTrigger asChild>
         <Button>
           <Pencil data-icon="inline-start" />
@@ -170,14 +185,12 @@ function EditCardDialog({ detail }: { detail: CardDetail }) {
           <FormField label={t("label")} hint={t("labelHint")} error={form.formState.errors.label?.message}>
             <Input autoComplete="off" {...form.register("label")} />
           </FormField>
-          {select("locationId", t("location"), options.locations)}
-          {select("employeeId", t("employee"), options.employees)}
           {select(
-            "targetId",
-            t("target"),
-            options.targets.map((target) => ({
-              id: target.id,
-              name: `${tTargets(target.type)} · ${new URL(target.url).hostname}`,
+            "locationId",
+            t("location"),
+            options.locations.map((l) => ({
+              id: l.id,
+              name: `${l.name} · ${l.address}`,
             })),
             t("targetHint"),
           )}

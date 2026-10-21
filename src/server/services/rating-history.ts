@@ -58,10 +58,10 @@ export class RatingHistory {
     return weight ? weighted / weight : null;
   }
 
-  /** Reviews added during [from, to] (both inclusive). */
+  /** Net change in the public review count, including removals. */
   newReviews(locationIds: readonly string[], from: IsoDate, to: IsoDate): number | null {
     const start = this.reviewCountAt(locationIds, from);
     const end = this.reviewCountAt(locationIds, addDays(to, 1));
-    return start === null || end === null ? null : Math.max(0, end - start);
+    return start === null || end === null ? null : end - start;
   }
 }
