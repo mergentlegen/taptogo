@@ -10,7 +10,8 @@ import {
   Smartphone,
 } from "lucide-react";
 import type { Metadata } from "next";
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
+import { headers } from "next/headers";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -18,19 +19,30 @@ import { LogoMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { salesContacts } from "@/config/contacts";
+import { getEnv } from "@/env";
 import { DashboardPreview } from "@/features/landing/components/dashboard-preview";
 import { LeadForm } from "@/features/leads/components/lead-form";
 import { formatKzt } from "@/lib/format";
+import { homepageSchema, serializeJsonLd } from "@/lib/homepage-schema";
 import { cn } from "@/lib/utils";
 import { getServices } from "@/server/services";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("metadata");
+  const url = new URL("/", getEnv().APP_URL).href;
   // The root layout's default title; set explicitly so the landing has full Open Graph tags.
   return {
     title: { absolute: t("title") },
     description: t("description"),
-    openGraph: { title: t("title"), description: t("description"), type: "website", locale: "ru_KZ" },
+    alternates: { canonical: url },
+    openGraph: {
+      title: t("title"),
+      description: t("description"),
+      type: "website",
+      locale: "ru_KZ",
+      url,
+      siteName: "TapToGo",
+    },
   };
 }
 
@@ -81,9 +93,20 @@ export default async function HomePage() {
   ]);
   const faq = t.raw("faq.items") as FaqItem[];
   const included = t.raw("pricing.included") as string[];
+  const [metadata, locale, requestHeaders] = await Promise.all([
+    getTranslations("metadata"),
+    getLocale(),
+    headers(),
+  ]);
+  const schema = homepageSchema(getEnv().APP_URL, metadata("title"), metadata("description"), locale);
 
   return (
     <>
+      <script
+        type="application/ld+json"
+        nonce={requestHeaders.get("x-nonce") ?? undefined}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(schema) }}
+      />
       <section className="relative overflow-hidden">
         <div
           aria-hidden="true"
