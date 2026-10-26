@@ -9,7 +9,6 @@ import { ShareBar } from "@/components/charts/share-bar";
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
 import { StatCard } from "@/components/data/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
-import { StatsGate } from "@/components/subscription/stats-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CardActions } from "@/features/cards/components/card-actions";
@@ -36,7 +35,6 @@ export default async function CardPage({ params }: PageProps<"/app/cards/[id]">)
 
   const t = await getTranslations("cards");
   const tc = await getTranslations("dashboard.charts");
-  const subscription = await services.subscription.view(ctx);
   const { card, stats } = detail;
   const canManage = access.permissions.includes("org.cards.manage");
   const qr = await qrSvg(cardUrl(card.code, "qr"));
@@ -64,85 +62,83 @@ export default async function CardPage({ params }: PageProps<"/app/cards/[id]">)
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="grid content-start gap-4">
-          <StatsGate subscription={subscription}>
-            <div className="grid gap-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <StatCard label={t("detail.taps")} value={formatNumber(stats.taps)} />
-                <StatCard label={t("detail.unique")} value={formatNumber(stats.uniqueVisitors)} />
-                <StatCard
-                  label={t("detail.lastTap")}
-                  value={stats.lastTapAt ? formatDateTime(stats.lastTapAt, ctx.timeZone) : t("never")}
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <StatCard label={t("detail.taps")} value={formatNumber(stats.taps)} />
+              <StatCard label={t("detail.unique")} value={formatNumber(stats.uniqueVisitors)} />
+              <StatCard
+                label={t("detail.lastTap")}
+                value={stats.lastTapAt ? formatDateTime(stats.lastTapAt, ctx.timeZone) : t("never")}
+              />
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>{tc("tapsTitle")}</CardTitle>
+                <CardDescription>{t("detail.stats30")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TimeSeriesChart
+                  kind="bar"
+                  label={tc("taps")}
+                  color="var(--chart-1)"
+                  valueFormat="number"
+                  data={stats.daily.map((d) => ({ date: d.date, value: d.taps }))}
+                  ariaLabel={`${tc("tapsTitle")}: ${formatNumber(stats.taps)}`}
                 />
-              </div>
+              </CardContent>
+            </Card>
+            <div className="grid gap-4 md:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>{tc("tapsTitle")}</CardTitle>
-                  <CardDescription>{t("detail.stats30")}</CardDescription>
+                  <CardTitle>{tc("heatmapTitle")}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <TimeSeriesChart
-                    kind="bar"
-                    label={tc("taps")}
-                    color="var(--chart-1)"
-                    valueFormat="number"
-                    data={stats.daily.map((d) => ({ date: d.date, value: d.taps }))}
-                    ariaLabel={`${tc("tapsTitle")}: ${formatNumber(stats.taps)}`}
+                  <Heatmap cells={stats.heatmap} />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t("detail.devices")}</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-6">
+                  <ShareBar
+                    ariaLabel={tc("sources")}
+                    segments={[
+                      {
+                        key: "nfc",
+                        label: tc("NFC"),
+                        value: stats.breakdown.sources.NFC,
+                        color: "var(--chart-1)",
+                      },
+                      {
+                        key: "qr",
+                        label: tc("QR"),
+                        value: stats.breakdown.sources.QR,
+                        color: "var(--chart-2)",
+                      },
+                    ]}
+                  />
+                  <ShareBar
+                    ariaLabel={tc("platforms")}
+                    segments={[
+                      {
+                        key: "ios",
+                        label: tc("IOS"),
+                        value: stats.breakdown.operatingSystems.IOS,
+                        color: "var(--chart-1)",
+                      },
+                      {
+                        key: "android",
+                        label: tc("ANDROID"),
+                        value: stats.breakdown.operatingSystems.ANDROID,
+                        color: "var(--chart-2)",
+                      },
+                    ]}
                   />
                 </CardContent>
               </Card>
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{tc("heatmapTitle")}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Heatmap cells={stats.heatmap} />
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t("detail.devices")}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="grid gap-6">
-                    <ShareBar
-                      ariaLabel={tc("sources")}
-                      segments={[
-                        {
-                          key: "nfc",
-                          label: tc("NFC"),
-                          value: stats.breakdown.sources.NFC,
-                          color: "var(--chart-1)",
-                        },
-                        {
-                          key: "qr",
-                          label: tc("QR"),
-                          value: stats.breakdown.sources.QR,
-                          color: "var(--chart-2)",
-                        },
-                      ]}
-                    />
-                    <ShareBar
-                      ariaLabel={tc("platforms")}
-                      segments={[
-                        {
-                          key: "ios",
-                          label: tc("IOS"),
-                          value: stats.breakdown.operatingSystems.IOS,
-                          color: "var(--chart-1)",
-                        },
-                        {
-                          key: "android",
-                          label: tc("ANDROID"),
-                          value: stats.breakdown.operatingSystems.ANDROID,
-                          color: "var(--chart-2)",
-                        },
-                      ]}
-                    />
-                  </CardContent>
-                </Card>
-              </div>
             </div>
-          </StatsGate>
+          </div>
         </div>
 
         <div className="grid content-start gap-4">

@@ -10,22 +10,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AuditTable } from "@/features/admin/components/audit-table";
-import { OrganizationBadge, SubscriptionBadge, YesNoBadge } from "@/features/admin/components/badges";
+import { OrganizationBadge, YesNoBadge } from "@/features/admin/components/badges";
 import {
   AddLocationDialog,
   ClientActions,
+  CreateAccountDialog,
   InviteToClientDialog,
 } from "@/features/admin/components/client-actions";
 import { TemporaryPasswordButton } from "@/features/admin/components/temporary-password-button";
 import { CardStatusBadge } from "@/features/cards/components/card-status-badge";
-import { formatDateTime, formatIsoDate, formatKzt, formatNumber, formatRating } from "@/lib/format";
+import { formatDateTime, formatNumber } from "@/lib/format";
 import { searchParam } from "@/lib/period";
 import { cn } from "@/lib/utils";
 import { requirePlatformAccess } from "@/server/auth/session";
 import { can } from "@/server/permissions";
 import { getServices } from "@/server/services";
 
-const TABS = ["overview", "locations", "cards", "targets", "users", "payments", "tickets", "audit"] as const;
+const TABS = ["overview", "locations", "cards", "targets", "users", "tickets", "audit"] as const;
 type Tab = (typeof TABS)[number];
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -71,7 +72,7 @@ export default async function AdminClientPage({
   const t = await getTranslations();
   const requested = searchParam(query.tab);
   const tab: Tab = TABS.find((x) => x === requested) ?? "overview";
-  const { organization: org, subscription } = detail;
+  const { organization: org } = detail;
   const empty = t("adm.clients.detail.noItems");
   const canManage = can(actor, "admin.manage");
 
@@ -83,37 +84,20 @@ export default async function AdminClientPage({
             <CardTitle className="text-base">{t("adm.clients.detail.contacts")}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-1 text-sm">
-            <p className="font-medium">{org.legalName ?? org.name}</p>
-            {org.bin && (
-              <p className="text-muted-foreground">{t("adm.clients.detail.bin", { bin: org.bin })}</p>
-            )}
-            <p>{org.contactName}</p>
-            <p>{org.contactPhone}</p>
-            <p>{org.contactEmail}</p>
+            <p className="font-medium">{org.name}</p>
+            {org.contactName && <p>{org.contactName}</p>}
+            {org.contactPhone && <p>{org.contactPhone}</p>}
+            {org.contactEmail && <p>{org.contactEmail}</p>}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">{t("adm.clients.detail.subscription")}</CardTitle>
+            <CardTitle className="text-base">{t("adm.clients.detail.cards")}</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-2 text-sm">
-            {subscription ? (
-              <>
-                <p className="flex items-center gap-2">
-                  {t(`subscription.plans.${subscription.plan}`)}
-                  <SubscriptionBadge status={subscription.effectiveStatus} />
-                </p>
-                <p className="text-muted-foreground">
-                  {t("adm.billing.paidUntil")}: {formatIsoDate(subscription.paidUntil, "long")}
-                </p>
-                <p className="text-muted-foreground">
-                  {t("adm.billing.cardLimit")}: {detail.cards.filter((c) => c.status !== "REVOKED").length} /{" "}
-                  {subscription.cardLimit}
-                </p>
-              </>
-            ) : (
-              "—"
-            )}
+          <CardContent>
+            <p className="text-3xl font-semibold">
+              {formatNumber(detail.cards.filter((c) => c.status !== "REVOKED").length)}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -139,7 +123,6 @@ export default async function AdminClientPage({
             t("adm.clients.wizard.locationName"),
             t("adm.clients.wizard.address"),
             t("adm.clients.detail.twogisColumn"),
-            t("locations.columns.rating"),
           ]}
           rows={detail.locations.map((l) => [
             <span key="n" className="font-medium">
@@ -160,7 +143,6 @@ export default async function AdminClientPage({
             ) : (
               <YesNoBadge key="2gis" value={false} yes="" no={t("adm.clients.detail.notLinked")} />
             ),
-            l.rating === null ? "—" : `${formatRating(l.rating)} · ${formatNumber(l.reviewCount ?? 0)}`,
           ])}
         />
       </div>
@@ -215,7 +197,8 @@ export default async function AdminClientPage({
     users: () => (
       <div className="grid gap-4">
         {canManage && org.status !== "ARCHIVED" && (
-          <div>
+          <div className="flex flex-wrap gap-2">
+            <CreateAccountDialog organizationId={org.id} />
             <InviteToClientDialog organizationId={org.id} />
           </div>
         )}
@@ -252,25 +235,6 @@ export default async function AdminClientPage({
         )}
       </div>
     ),
-    payments: () => (
-      <SimpleTable
-        empty={empty}
-        headers={[
-          t("adm.billing.columns.date"),
-          t("adm.billing.columns.amount"),
-          t("adm.billing.columns.method"),
-          t("adm.billing.columns.comment"),
-        ]}
-        rows={detail.payments.map((p) => [
-          formatDateTime(p.paidAt),
-          <span key="a" className="tabular-nums">
-            {formatKzt(p.amountKzt)}
-          </span>,
-          t(`adm.methods.${p.method}`),
-          p.comment ?? "—",
-        ])}
-      />
-    ),
     tickets: () => (
       <SimpleTable
         empty={empty}
@@ -306,7 +270,6 @@ export default async function AdminClientPage({
       </Button>
       <PageHeader
         title={org.name}
-        description={org.legalName ?? undefined}
         actions={
           <ClientActions
             organization={org}

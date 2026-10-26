@@ -3,8 +3,6 @@ import { cardStatuses, type Card } from "@/features/cards/schemas";
 import type { Location } from "@/features/locations/schemas";
 import { parseTwogisFirmUrl, twogisProfileUrl, twogisReviewsUrl } from "@/features/locations/twogis-url";
 import type { Organization, OrganizationStatus } from "@/features/organizations/schemas";
-import type { Payment, Plan, Subscription, SubscriptionStatus } from "@/features/subscriptions/schemas";
-import { resolveSubscriptionStatus } from "@/features/subscriptions/status";
 import type { SupportTicket } from "@/features/support/schemas";
 import type { RedirectTarget } from "@/features/targets/schemas";
 import type { OrgRole } from "@/features/team/schemas";
@@ -20,7 +18,7 @@ import type { TeamService } from "@/server/services/team-service";
 import { assertAdmin, type AdminContext } from "./context";
 
 const HELD_STATUSES = cardStatuses.filter((s) => s !== "REVOKED");
-/** The client page shows recent history; the full trail is in billing and the audit log. */
+/** The client page shows recent history; the full trail is in the audit log. */
 const DETAIL_HISTORY = 50;
 
 export const IMPERSONATION_TTL_MS = 30 * 60 * 1000;
@@ -29,9 +27,6 @@ export type ClientRow = {
   id: string;
   name: string;
   city: string | null;
-  plan: Plan | null;
-  paidUntil: string | null;
-  subscriptionStatus: SubscriptionStatus | null;
   cards: number;
   taps30: number;
   status: OrganizationStatus;
@@ -39,19 +34,24 @@ export type ClientRow = {
 
 export type ClientDetail = {
   organization: Organization;
-  subscription: (Subscription & { effectiveStatus: SubscriptionStatus }) | null;
-  locations: (Location & { rating: number | null; reviewCount: number | null })[];
+  locations: Location[];
   cards: (Card & { locationName: string | null; taps30: number })[];
   targets: (RedirectTarget & { locationName: string | null })[];
   members: { userId: string; name: string; email: string; role: OrgRole; lastLoginAt: string | null }[];
   invitations: { id: string; email: string; role: OrgRole; expiresAt: string }[];
-  payments: Payment[];
   tickets: SupportTicket[];
   audit: AuditLog[];
   taps30: number;
 };
 
 type NewLocation = { name: string; address: string; twogisUrl: string | null };
+
+/** What the administrator hands to a new client member. `temporaryPassword` is null for an existing account. */
+export type CreatedAccount = {
+  email: string;
+  name: string;
+  temporaryPassword: string | null;
+};
 
 export class AdminClientService {
   constructor(
@@ -71,32 +71,23 @@ export class AdminClientService {
     const repos = this.repositories;
     const today = this.today();
     // Counts and sums come aggregated from storage; lookups below are maps, not nested scans.
-    const [organizations, subscriptions, settings, cardCounts, locations, stats] = await Promise.all([
+    const [organizations, cardCounts, locations, stats] = await Promise.all([
       repos.organizations.list(),
-      repos.subscriptions.list(),
-      repos.platformSettings.get(),
       repos.cards.countBy("organizationId", { statuses: HELD_STATUSES }),
       repos.locations.list(),
       repos.dailyStats.totalsBy({ from: addDays(today, -29), to: today }, "organizationId"),
     ]);
     const taps = byKey(stats);
-    const subscriptionOf = new Map(subscriptions.map((s) => [s.organizationId, s]));
     const firstAddressOf = new Map<string, string>();
     for (const l of locations)
       if (!firstAddressOf.has(l.organizationId)) firstAddressOf.set(l.organizationId, l.address);
 
     return organizations.map((org) => {
-      const subscription = subscriptionOf.get(org.id);
       const firstAddress = firstAddressOf.get(org.id);
       return {
         id: org.id,
         name: org.name,
         city: firstAddress?.split(",")[0]?.trim() ?? null,
-        plan: subscription?.plan ?? null,
-        paidUntil: subscription?.paidUntil ?? null,
-        subscriptionStatus: subscription
-          ? resolveSubscriptionStatus(subscription, today, settings.graceDays)
-          : null,
         cards: cardCounts[org.id] ?? 0,
         taps30: taps.get(org.id)?.taps ?? 0,
         status: org.status,
@@ -129,53 +120,26 @@ export class AdminClientService {
     const today = this.today();
     const scope = { organizationId };
 
-    const [
-      subscription,
-      settings,
-      locations,
-      cards,
-      targets,
-      memberships,
-      invitations,
-      payments,
-      tickets,
-      audit,
-      total,
-      byCard,
-    ] = await Promise.all([
-      repos.subscriptions.findByOrganization(organizationId),
-      repos.platformSettings.get(),
-      repos.locations.list(scope),
-      repos.cards.list(scope),
-      repos.targets.list(scope),
-      repos.memberships.listByOrganization(organizationId),
-      repos.invitations.listByOrganization(organizationId),
-      repos.payments.list({ organizationId, limit: DETAIL_HISTORY }),
-      repos.tickets.list({ organizationId, limit: DETAIL_HISTORY }),
-      repos.auditLogs.list({ organizationId }, { limit: DETAIL_HISTORY }),
-      repos.dailyStats.total({ organizationId, from: addDays(today, -29), to: today }),
-      repos.dailyStats.totalsBy({ organizationId, from: addDays(today, -29), to: today }, "cardId"),
-    ]);
-    const [users, snapshots] = await Promise.all([
-      repos.users.listByIds(memberships.map((m) => m.userId)),
-      repos.ratingSnapshots.latestForLocations(locations.map((l) => l.id)),
-    ]);
+    const [locations, cards, targets, memberships, invitations, tickets, audit, total, byCard] =
+      await Promise.all([
+        repos.locations.list(scope),
+        repos.cards.list(scope),
+        repos.targets.list(scope),
+        repos.memberships.listByOrganization(organizationId),
+        repos.invitations.listByOrganization(organizationId),
+        repos.tickets.list({ organizationId, limit: DETAIL_HISTORY }),
+        repos.auditLogs.list({ organizationId }, { limit: DETAIL_HISTORY }),
+        repos.dailyStats.total({ organizationId, from: addDays(today, -29), to: today }),
+        repos.dailyStats.totalsBy({ organizationId, from: addDays(today, -29), to: today }, "cardId"),
+      ]);
+    const users = await repos.users.listByIds(memberships.map((m) => m.userId));
     const locationName = new Map(locations.map((l) => [l.id, l.name]));
     const tapsByCard = byKey(byCard);
     const now = this.clock().toISOString();
 
     return {
       organization,
-      subscription: subscription
-        ? {
-            ...subscription,
-            effectiveStatus: resolveSubscriptionStatus(subscription, today, settings.graceDays),
-          }
-        : null,
-      locations: locations.map((l) => {
-        const snap = snapshots.find((s) => s.locationId === l.id);
-        return { ...l, rating: snap?.rating ?? null, reviewCount: snap?.reviewCount ?? null };
-      }),
+      locations,
       cards: cards.map((c) => ({
         ...c,
         locationName: c.locationId ? (locationName.get(c.locationId) ?? null) : null,
@@ -194,7 +158,6 @@ export class AdminClientService {
       invitations: invitations
         .filter((i) => !i.acceptedAt && i.expiresAt > now)
         .map(({ id, email, role, expiresAt }) => ({ id, email, role, expiresAt })),
-      payments,
       tickets,
       audit: audit.items,
       taps30: total.taps,
@@ -211,10 +174,9 @@ export class AdminClientService {
     input: {
       organization: Omit<Organization, "id" | "timezone" | "status" | "createdAt">;
       locations: NewLocation[];
-      owner: { email: string };
-      subscription: { plan: Plan; paidUntil: string; trial: boolean };
+      owner: { email: string; name: string };
     },
-  ): Promise<Organization> {
+  ): Promise<{ organization: Organization; account: CreatedAccount }> {
     assertAdmin(ctx, "admin.manage");
     // Validate every 2GIS link before writing anything.
     const parsed = input.locations.map((location) => {
@@ -224,7 +186,6 @@ export class AdminClientService {
     });
 
     const repos = this.repositories;
-    const settings = await repos.platformSettings.get();
     // One transaction: a failure leaves no half-created client to clean up or duplicate on retry.
     const { organization, locations } = await repos.organizations.createClient({
       organization: { ...input.organization, timezone: DEFAULT_TIME_ZONE, status: "ACTIVE" },
@@ -238,12 +199,6 @@ export class AdminClientService {
         },
         reviewsTargetUrl: firm ? twogisReviewsUrl(firm) : null,
       })),
-      subscription: {
-        plan: input.subscription.plan,
-        cardLimit: settings.plans.find((p) => p.plan === input.subscription.plan)?.cardLimit ?? 10,
-        paidUntil: input.subscription.paidUntil,
-        status: input.subscription.trial ? "TRIAL" : "ACTIVE",
-      },
     });
     await this.audit.recordMany([
       {
@@ -252,7 +207,7 @@ export class AdminClientService {
         entityType: "organization",
         entityId: organization.id,
         organizationId: organization.id,
-        after: { name: organization.name, plan: input.subscription.plan, locations: locations.length },
+        after: { name: organization.name, locations: locations.length },
       },
       ...locations.map((location) => ({
         actorUserId: ctx.userId,
@@ -263,12 +218,60 @@ export class AdminClientService {
         after: { name: location.name, twogisFirmId: location.twogisFirmId },
       })),
     ]);
-    // The owner's invitation goes into the manual sending queue (/admin/outbox).
-    await this.team.createInvitation(
-      { organizationId: organization.id, invitedById: ctx.userId },
-      { email: input.owner.email, role: "OWNER" },
-    );
-    return organization;
+    // The owner gets an account right away; the administrator hands over the password.
+    const account = await this.createAccount(ctx, organization.id, { ...input.owner, role: "OWNER" });
+    return { organization, account };
+  }
+
+  /**
+   * Creates an account for a client's employee, who cannot sign up by themselves, and adds
+   * them to the organization. A person who already has an account is only added.
+   */
+  async createAccount(
+    ctx: AdminContext,
+    organizationId: string,
+    input: { email: string; name: string; role: OrgRole },
+  ): Promise<CreatedAccount> {
+    assertAdmin(ctx, "admin.manage");
+    const repos = this.repositories;
+    const organization = await repos.organizations.findById(organizationId);
+    if (!organization || organization.status === "ARCHIVED")
+      throw serviceError("NOT_FOUND", "organizationNotFound");
+
+    const email = input.email.trim().toLowerCase();
+    const existing = await repos.users.findByEmail(email);
+    let account: CreatedAccount;
+    let userId: string;
+    if (existing) {
+      if (existing.platformRole) throw serviceError("CONFLICT", "userExists");
+      if (await repos.memberships.find(existing.id, organizationId))
+        throw serviceError("CONFLICT", "alreadyMember");
+      userId = existing.id;
+      account = { email, name: existing.name, temporaryPassword: null };
+    } else {
+      const created = await this.auth.createAccount({ email, name: input.name });
+      if (!created.ok) throw serviceError("CONFLICT", "userExists");
+      userId = created.user.id;
+      account = { email, name: created.user.name, temporaryPassword: created.temporaryPassword };
+      await this.audit.record({
+        actorUserId: ctx.userId,
+        action: "user.create",
+        entityType: "user",
+        entityId: userId,
+        organizationId,
+        after: { role: input.role },
+      });
+    }
+    await repos.memberships.create({ userId, organizationId, role: input.role });
+    await this.audit.record({
+      actorUserId: ctx.userId,
+      action: "membership.create",
+      entityType: "membership",
+      entityId: userId,
+      organizationId,
+      after: { role: input.role },
+    });
+    return account;
   }
 
   /**
@@ -351,20 +354,13 @@ export class AdminClientService {
   async update(
     ctx: AdminContext,
     organizationId: string,
-    input: Pick<Organization, "name" | "legalName" | "bin" | "contactName" | "contactPhone" | "contactEmail">,
+    input: Pick<Organization, "name" | "contactName" | "contactPhone" | "contactEmail">,
   ): Promise<Organization> {
     assertAdmin(ctx, "admin.manage");
     const before = await this.repositories.organizations.findById(organizationId);
     if (!before) throw serviceError("NOT_FOUND", "organizationNotFound");
     const after = await this.repositories.organizations.update(organizationId, input);
-    const diff = auditDiff(before, after, [
-      "name",
-      "legalName",
-      "bin",
-      "contactName",
-      "contactPhone",
-      "contactEmail",
-    ]);
+    const diff = auditDiff(before, after, ["name", "contactName", "contactPhone", "contactEmail"]);
     if (diff) {
       await this.audit.record({
         actorUserId: ctx.userId,

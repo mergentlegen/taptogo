@@ -47,9 +47,6 @@ export const phoneInputSchema = z
 export const emptyToNull = <T extends z.ZodType>(schema: T) =>
   z.union([z.literal("").transform(() => null), schema, z.null()]);
 
-/** БИН/ИИН: 12 digits. */
-export const binSchema = z.string().regex(/^\d{12}$/, { error: validationMessage("binFormat") });
-
 export function isValidTimeZone(value: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value });

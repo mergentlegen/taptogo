@@ -9,7 +9,6 @@ import { createServices, type Services } from "../index";
 import type { AdminContext } from "./context";
 
 const NOW = new Date("2026-10-17T10:00:00Z");
-const TODAY = "2026-10-17";
 
 let container: Container;
 let admin: Services["admin"];
@@ -41,8 +40,6 @@ describe("client wizard", () => {
   const input = {
     organization: {
       name: "Шашлычная «Тест»",
-      legalName: null,
-      bin: null,
       contactName: "Тест Тестов",
       contactPhone: "+77010000000",
       contactEmail: "test@shashlyk.kz",
@@ -55,12 +52,11 @@ describe("client wizard", () => {
       },
       { name: "Без 2ГИС", address: "Алматы, ул. Другая, 2", twogisUrl: null },
     ],
-    owner: { email: "owner@shashlyk.kz" },
-    subscription: { plan: "START" as const, paidUntil: "2026-11-17", trial: true },
+    owner: { email: "owner@shashlyk.kz", name: "Алия Владелец" },
   };
 
-  it("creates organization, locations, verified 2GIS target, subscription and owner invitation", async () => {
-    const org = await admin.clients.create(adminCtx, input);
+  it("creates organization, locations, a verified 2GIS target and the owner's account", async () => {
+    const { organization: org, account } = await admin.clients.create(adminCtx, input);
     const repos = container.repositories;
 
     const locations = await repos.locations.list({ organizationId: org.id });
@@ -73,15 +69,28 @@ describe("client wizard", () => {
         url: "https://2gis.kz/almaty/firm/70000009999999999/tab/reviews",
       }),
     ]);
-    expect(await repos.subscriptions.findByOrganization(org.id)).toMatchObject({
-      plan: "START",
-      cardLimit: 10,
-      status: "TRIAL",
+
+    // The owner can sign in at once with the temporary password, and must replace it.
+    expect(account).toMatchObject({ email: "owner@shashlyk.kz", name: "Алия Владелец" });
+    expect(account.temporaryPassword).toMatch(/^[A-Za-z0-9]{12}$/);
+    const owner = await repos.users.findByEmail("owner@shashlyk.kz");
+    expect(owner?.mustChangePassword).toBe(true);
+    expect((await repos.memberships.find(owner!.id, org.id))?.role).toBe("OWNER");
+    const signIn = await container.auth.signIn(
+      { email: "owner@shashlyk.kz", password: account.temporaryPassword! },
+      { ip: "203.0.113.5", userAgent: null },
+    );
+    expect(signIn.ok && signIn.session.user.mustChangePassword).toBe(true);
+    // No mail is involved: nothing is queued for sending.
+    expect(await container.outbox.list()).toEqual([]);
+  });
+
+  it("works with the title alone: the contact person is optional", async () => {
+    const { organization } = await admin.clients.create(adminCtx, {
+      ...input,
+      organization: { name: "Только название", contactName: null, contactPhone: null, contactEmail: null },
     });
-    expect(await repos.invitations.listByOrganization(org.id)).toEqual([
-      expect.objectContaining({ email: "owner@shashlyk.kz", role: "OWNER" }),
-    ]);
-    expect((await container.outbox.list())[0]?.to).toBe("owner@shashlyk.kz");
+    expect(organization).toMatchObject({ name: "Только название", contactName: null, contactPhone: null });
   });
 
   it("rejects a malformed 2GIS link before creating anything", async () => {
@@ -97,7 +106,7 @@ describe("client wizard", () => {
 });
 
 describe("batches and cards", () => {
-  it("creates unique UNASSIGNED codes and exports CSV and a ZIP of SVG QR codes", async () => {
+  it("creates unique UNASSIGNED codes and exports a ZIP of SVG QR codes", async () => {
     const batch = await admin.cards.createBatch(adminCtx, {
       name: "Тест",
       quantity: 25,
@@ -112,16 +121,71 @@ describe("batches and cards", () => {
     const allCodes = (await container.repositories.cards.list()).map((c) => c.code);
     expect(new Set(allCodes).size).toBe(allCodes.length);
 
-    const csv = await admin.cards.exportBatchCsv(adminCtx, batch.id);
-    // The printed number comes first: it is how the print shop and the flashing screen line up.
-    expect(csv.body.split("\r\n")[1]).toMatch(
-      /^1,[A-Za-z0-9]{8},http:\/\/localhost:3000\/t\/[A-Za-z0-9]{8},.+\?s=q$/,
-    );
     expect(detail?.cards.map((c) => c.number)).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
     const zip = await JSZip.loadAsync((await admin.cards.exportBatchZip(adminCtx, batch.id)).body);
     const files = Object.keys(zip.files).filter((f) => f.endsWith(".svg"));
     expect(files).toHaveLength(25);
     expect(await zip.file(files[0]!)!.async("string")).toContain("<svg");
+    // The list of codes travels inside the archive, in the order of the printed numbers.
+    const list = (await zip.file("codes.csv")!.async("string")).split(/\r?\n/);
+    expect(list[1]).toMatch(/^1,[A-Za-z0-9]{8},http:\/\/localhost:3000\/t\/[A-Za-z0-9]{8},.+\?s=q$/);
+  });
+
+  it("renames a batch and changes its note, leaving the cards alone", async () => {
+    const batch = await admin.cards.createBatch(adminCtx, {
+      name: "Старое",
+      quantity: 3,
+      cardType: "STICKER",
+      notes: null,
+    });
+    const after = await admin.cards.updateBatch(adminCtx, batch.id, { name: "Новое", notes: "Для кофейни" });
+
+    expect(after).toMatchObject({ name: "Новое", notes: "Для кофейни", quantity: 3, cardType: "STICKER" });
+    expect((await admin.cards.batchDetail(batch.id))?.cards).toHaveLength(3);
+    const { items } = await container.repositories.auditLogs.list({ action: "batch.update" }, { limit: 1 });
+    expect(items[0]).toMatchObject({ entityId: batch.id });
+    await expect(
+      admin.cards.updateBatch(adminCtx, crypto.randomUUID(), { name: "x", notes: null }),
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("deletes a batch that was never handed out, and refuses one that was", async () => {
+    const spare = await admin.cards.createBatch(adminCtx, {
+      name: "Лишняя",
+      quantity: 4,
+      cardType: "NFC_CARD",
+      notes: null,
+    });
+    const used = await admin.cards.createBatch(adminCtx, {
+      name: "Выданная",
+      quantity: 2,
+      cardType: "NFC_CARD",
+      notes: null,
+    });
+    const coffee = await orgId("Coffee");
+    const handedOut = await admin.cards.resolveSelection({ range: { batchId: used.id, from: 1, to: 1 } });
+    await admin.cards.assign(adminCtx, handedOut, coffee, null);
+
+    await expect(admin.cards.deleteBatch(adminCtx, used.id)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await admin.cards.batchDetail(used.id)).not.toBeNull();
+
+    await admin.cards.deleteBatch(adminCtx, spare.id);
+    expect(await admin.cards.batchDetail(spare.id)).toBeNull();
+    expect(await container.repositories.cards.count({ batchId: spare.id })).toBe(0);
+    await expect(admin.cards.deleteBatch(adminCtx, spare.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    // Once the cards are released again, the batch can go too.
+    await admin.cards.setStatus(
+      adminCtx,
+      handedOut.map((c) => c.id),
+      "UNASSIGNED",
+    );
+    await admin.cards.deleteBatch(adminCtx, used.id);
+    expect(await admin.cards.batchDetail(used.id)).toBeNull();
+    const { items } = await container.repositories.auditLogs.list({ action: "batch.delete" }, { limit: 5 });
+    expect(items).toHaveLength(2);
   });
 
   it("assigns a range to a client: ACTIVE, pointing to the location's review page", async () => {
@@ -144,19 +208,8 @@ describe("batches and cards", () => {
     expect(decision.kind).toBe("REDIRECT");
   });
 
-  it("enforces the plan's card limit and refuses already-assigned cards", async () => {
-    const beauty = await orgId("Aru"); // START plan, 10 cards; 6 in use
-    const batch = await admin.cards.createBatch(adminCtx, {
-      name: "L",
-      quantity: 6,
-      cardType: "STICKER",
-      notes: null,
-    });
-    const cards = await admin.cards.resolveSelection({ range: { batchId: batch.id, from: 1, to: 6 } });
-    await expect(admin.cards.assign(adminCtx, cards, beauty, null)).rejects.toMatchObject({
-      code: "CONFLICT",
-    });
-
+  it("refuses cards that are already assigned", async () => {
+    const beauty = await orgId("Aru");
     const [taken] = await container.repositories.cards.list({ statuses: ["ACTIVE"] });
     await expect(admin.cards.assign(adminCtx, [taken!], beauty, null)).rejects.toMatchObject({
       code: "CONFLICT",
@@ -212,35 +265,6 @@ describe("targets", () => {
     const [card] = await container.repositories.cards.list({ statuses: ["ACTIVE"] });
     await admin.targets.setVerified(adminCtx, card!.targetId!, false);
     expect((await new CardRedirectService(container.repositories).resolve(card!.code)).kind).toBe("INACTIVE");
-  });
-});
-
-describe("billing", () => {
-  it("extends from today when the subscription lapsed, and from paidUntil when active", async () => {
-    const beauty = await orgId("Aru"); // paidUntil = today - 20
-    const lapsed = await admin.billing.recordPayment(adminCtx, {
-      organizationId: beauty,
-      amountKzt: 9900,
-      method: "KASPI",
-      paidOn: TODAY,
-      months: 1,
-      comment: null,
-    });
-    expect(lapsed.paidUntil).toBe("2026-11-17");
-
-    const coffee = await orgId("Coffee"); // paidUntil = today + 40
-    const active = await admin.billing.recordPayment(adminCtx, {
-      organizationId: coffee,
-      amountKzt: 19900,
-      method: "CASH",
-      paidOn: TODAY,
-      months: 2,
-      comment: "наличные",
-    });
-    expect(active.paidUntil).toBe("2027-01-26");
-    expect(
-      (await admin.billing.overview()).subscriptions.find((s) => s.organizationId === beauty)?.status,
-    ).toBe("ACTIVE");
   });
 });
 
@@ -343,9 +367,8 @@ describe("overview and settings", () => {
   it("summarizes the platform", async () => {
     const data = await admin.overview.overview();
     expect(data.activeClients).toBe(3);
-    expect(data.lapsed.map((l) => l.status).sort()).toEqual(["EXPIRED", "GRACE"]);
-    expect(data.revenueMonthKzt).toBeGreaterThan(0);
-    expect(data.newLeads.length).toBeGreaterThan(0);
+    expect(data.activeCards).toBeGreaterThan(0);
+    expect(data.newTickets.length).toBeGreaterThan(0);
   });
 
   it("updates settings, de-duplicating domains", async () => {
@@ -353,10 +376,8 @@ describe("overview and settings", () => {
     const updated = await admin.settings.update(adminCtx, {
       ...settings,
       allowedRedirectDomains: ["2gis.kz", "2GIS.kz", "google.com"],
-      graceDays: 10,
     });
     expect(updated.allowedRedirectDomains).toEqual(["2gis.kz", "google.com"]);
-    expect(updated.graceDays).toBe(10);
   });
 });
 
@@ -397,24 +418,85 @@ describe("consistency under concurrency and failures", () => {
       code: "VALIDATION",
     });
   });
+});
 
-  it("queues the owner's invitation for manual sending instead of e-mailing it", async () => {
-    const organization = await createServices(container).admin.clients.create(adminCtx, {
-      organization: {
-        name: "Без почты",
-        legalName: null,
-        bin: null,
-        contactName: "Тест",
-        contactPhone: "+77010000000",
-        contactEmail: "nomail@example.kz",
-      },
-      locations: [{ name: "Точка", address: "Алматы", twogisUrl: null }],
-      owner: { email: "owner@nomail.kz" },
-      subscription: { plan: "START", paidUntil: "2026-11-17", trial: true },
+describe("accounts and invitation links", () => {
+  it("creates an account for a client's employee, who cannot sign up by themselves", async () => {
+    const coffee = await orgId("Coffee");
+    const account = await admin.clients.createAccount(adminCtx, coffee, {
+      email: "Barista@CoffeePoint.kz",
+      name: "Новый Бариста",
+      role: "MANAGER",
     });
-    // Stored and queued: the admin copies the link from /admin/outbox.
-    expect(await container.repositories.invitations.listByOrganization(organization.id)).toHaveLength(1);
-    expect((await container.outbox.list())[0]).toMatchObject({ to: "owner@nomail.kz", tag: "invitation" });
+
+    expect(account.email).toBe("barista@coffeepoint.kz");
+    expect(account.temporaryPassword).toMatch(/^[A-Za-z0-9]{12}$/);
+    const user = (await container.repositories.users.findByEmail("barista@coffeepoint.kz"))!;
+    expect(user.mustChangePassword).toBe(true);
+    expect((await container.repositories.memberships.find(user.id, coffee))?.role).toBe("MANAGER");
+    const { items } = await container.repositories.auditLogs.list({ action: "user." }, { limit: 5 });
+    expect(items[0]).toMatchObject({ action: "user.create", entityId: user.id, organizationId: coffee });
+    // The audit trail never contains the password.
+    expect(JSON.stringify(items)).not.toContain(account.temporaryPassword!);
+  });
+
+  it("only adds someone who already has an account, and refuses members and staff", async () => {
+    const beauty = await orgId("Aru");
+    const existing = await admin.clients.createAccount(adminCtx, beauty, {
+      email: "owner@coffeepoint.kz",
+      name: "Игнорируется",
+      role: "MANAGER",
+    });
+    expect(existing).toMatchObject({ email: "owner@coffeepoint.kz", temporaryPassword: null });
+
+    await expect(
+      admin.clients.createAccount(adminCtx, beauty, {
+        email: "owner@coffeepoint.kz",
+        name: "x",
+        role: "OWNER",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      admin.clients.createAccount(adminCtx, beauty, { email: "admin2@taptogo.kz", name: "x", role: "OWNER" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("refuses an archived client", async () => {
+    const coffee = await orgId("Coffee");
+    await admin.clients.setStatus(adminCtx, coffee, "ARCHIVED");
+    await expect(
+      admin.clients.createAccount(adminCtx, coffee, {
+        email: "late@coffeepoint.kz",
+        name: "x",
+        role: "MANAGER",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("gives an invitation as a link to copy, usable once, with nothing queued for sending", async () => {
+    const coffee = await orgId("Coffee");
+    const { link } = await admin.clients.invite(adminCtx, coffee, {
+      email: "link@coffeepoint.kz",
+      role: "MANAGER",
+    });
+
+    expect(link).toMatch(/^http:\/\/localhost:3000\/invite\/[A-Za-z0-9_-]{43}$/);
+    expect(await container.outbox.list()).toEqual([]);
+    const token = link.split("/").at(-1)!;
+    expect((await container.auth.getInvitation(token))?.status).toBe("PENDING");
+    const accepted = await container.auth.acceptInvitation(
+      { token, name: "По ссылке", password: "Ссылка-сработала-2026" },
+      { ip: "203.0.113.6", userAgent: null },
+    );
+    expect(accepted.ok).toBe(true);
+    expect(
+      (
+        await container.auth.acceptInvitation(
+          { token, name: "Ещё", password: "x" },
+          { ip: "1", userAgent: null },
+        )
+      ).ok,
+    ).toBe(false);
   });
 });
 

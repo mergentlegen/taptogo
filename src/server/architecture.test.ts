@@ -93,7 +93,6 @@ describe("client-cabinet services", () => {
     "employee",
     "location",
     "report",
-    "subscription",
     "support",
     "team",
   ].map((name) => join(SRC, "server", "services", `${name}-service.ts`));

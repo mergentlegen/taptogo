@@ -88,6 +88,20 @@ export function supabaseCardBatchRepository(db: DbGetter): CardBatchRepository {
       ]);
       return { batch: fromRow(cardBatchSchema, created), cards: fromRows(cardSchema, stored) };
     },
+    async update(id, patch) {
+      const c = await db();
+      const values = toRow(patch);
+      const data = Object.keys(values).length
+        ? ok(await c.from("card_batches").update(values).eq("id", id).select().maybeSingle())
+        : ok(await c.from("card_batches").select("*").eq("id", id).maybeSingle());
+      if (!data) throw notFoundError("CardBatch");
+      return fromRow(cardBatchSchema, data);
+    },
+    async delete(id) {
+      const c = await db();
+      const outcome = one(await c.rpc("delete_batch", { p_batch_id: id }));
+      return outcome === "OK" || outcome === "IN_USE" ? outcome : "NOT_FOUND";
+    },
     async progress() {
       const c = await db();
       const result: Record<string, { assigned: number; written: number; locked: number }> = {};
@@ -219,12 +233,10 @@ export function supabaseCardRepository(db: DbGetter): CardRepository {
           p_location_id: nullable(input.locationId),
           p_target_id: nullable(input.targetId),
           p_activated_at: input.activatedAt,
-          p_card_limit: nullable(input.cardLimit),
         }),
       );
       if (outcome !== "OK") {
-        const reason = outcome === "NOT_FOUND" || outcome === "NOT_UNASSIGNED" ? outcome : "LIMIT_EXCEEDED";
-        return { ok: false, reason };
+        return { ok: false, reason: outcome === "NOT_UNASSIGNED" ? "NOT_UNASSIGNED" : "NOT_FOUND" };
       }
       return { ok: true, cards: await findManyBy("id", input.cardIds) };
     },

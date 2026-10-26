@@ -1,11 +1,9 @@
-import type { NextRequest } from "next/server";
-
 import { authorizePlatformAction } from "@/server/auth/session";
 import { AppError } from "@/server/errors";
 import { getServices } from "@/server/services";
 
-/** GET /admin/batches/{id}/export?format=csv|zip — files for the print shop. */
-export async function GET(request: NextRequest, { params }: RouteContext<"/admin/batches/[id]/export">) {
+/** GET /admin/batches/{id}/export — the ZIP with one SVG QR per card, for the print shop. */
+export async function GET(_request: Request, { params }: RouteContext<"/admin/batches/[id]/export">) {
   let ctx;
   try {
     const { session } = await authorizePlatformAction("admin.access");
@@ -18,14 +16,11 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/admin
   }
 
   const { id } = await params;
-  const service = getServices().admin.cards;
   try {
-    const zip = request.nextUrl.searchParams.get("format") === "zip";
-    const file = zip ? await service.exportBatchZip(ctx, id) : await service.exportBatchCsv(ctx, id);
-    const body = typeof file.body === "string" ? file.body : new Uint8Array(file.body);
-    return new Response(body, {
+    const file = await getServices().admin.cards.exportBatchZip(ctx, id);
+    return new Response(new Uint8Array(file.body), {
       headers: {
-        "Content-Type": zip ? "application/zip" : "text/csv; charset=utf-8",
+        "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="${file.filename}"`,
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",

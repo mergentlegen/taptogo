@@ -6,6 +6,7 @@ import { AppError } from "@/server/errors";
 import { serverText, serviceError } from "@/server/i18n";
 import type { CardFilter, Repositories } from "@/server/repositories";
 import type { AuditEntry, AuditService } from "@/server/services/audit-service";
+import { auditDiff } from "@/server/services/context";
 
 import { assertAdmin, type AdminContext } from "./context";
 
@@ -136,21 +137,46 @@ export class AdminCardService {
     }
   }
 
-  /** CSV for the print shop: number, code, NFC URL, QR URL. */
-  async exportBatchCsv(ctx: AdminContext, batchId: string) {
-    const detail = await this.requireBatch(batchId);
-    await this.recordExport(ctx, batchId, "csv");
-    return {
-      filename: `batch-${fileSlug(detail.batch)}.csv`,
-      body: toCsv(
-        ["number", "code", "url", "qr_url"],
-        detail.cards.map((c) => [c.number, c.code, c.url, c.qrUrl]),
-        ",",
-      ),
-    };
+  /** Rename a batch or change its note. */
+  async updateBatch(ctx: AdminContext, batchId: string, patch: { name: string; notes: string | null }) {
+    assertAdmin(ctx, "admin.manage");
+    const before = await this.repositories.batches.findById(batchId);
+    if (!before) throw serviceError("NOT_FOUND", "batchNotFound");
+    const after = await this.repositories.batches.update(batchId, patch);
+    const diff = auditDiff(before, after, ["name", "notes"]);
+    if (diff) {
+      await this.audit.record({
+        actorUserId: ctx.userId,
+        action: "batch.update",
+        entityType: "batch",
+        entityId: batchId,
+        ...diff,
+      });
+    }
+    return after;
   }
 
-  /** ZIP with the CSV and one SVG QR per card, ready for printing. */
+  /**
+   * Deletes a batch that never left the warehouse: no card was handed to a client or
+   * has taps. Otherwise release the cards first (they are the client's history).
+   */
+  async deleteBatch(ctx: AdminContext, batchId: string) {
+    assertAdmin(ctx, "admin.manage");
+    const batch = await this.repositories.batches.findById(batchId);
+    if (!batch) throw serviceError("NOT_FOUND", "batchNotFound");
+    const outcome = await this.repositories.batches.delete(batchId);
+    if (outcome === "IN_USE") throw serviceError("CONFLICT", "batchInUse");
+    if (outcome === "NOT_FOUND") throw serviceError("NOT_FOUND", "batchNotFound");
+    await this.audit.record({
+      actorUserId: ctx.userId,
+      action: "batch.delete",
+      entityType: "batch",
+      entityId: batchId,
+      before: { name: batch.name, quantity: batch.quantity, cardType: batch.cardType },
+    });
+  }
+
+  /** ZIP with one SVG QR per card (and the list of codes), ready for printing. */
   async exportBatchZip(ctx: AdminContext, batchId: string) {
     const detail = await this.requireBatch(batchId);
     const files: ZipEntry[] = [
@@ -242,8 +268,8 @@ export class AdminCardService {
   /**
    * Hands free cards to a client: they become ACTIVE and point to the
    * location's verified review page. The repository re-checks "still
-   * unassigned" and the plan's card limit inside one transaction, so two
-   * admins assigning the same card at once cannot both succeed.
+   * unassigned" inside one transaction, so two admins assigning the same
+   * card at once cannot both succeed.
    */
   async assign(ctx: AdminContext, cards: Card[], organizationId: string, locationId: string | null) {
     assertAdmin(ctx, "admin.manage");
@@ -257,10 +283,7 @@ export class AdminCardService {
     const location = locationId ? await repos.locations.findById(locationId, { organizationId }) : null;
     if (locationId && !location) throw serviceError("VALIDATION", "locationNotFound");
 
-    const [subscription, targets] = await Promise.all([
-      repos.subscriptions.findByOrganization(organizationId),
-      repos.targets.list({ organizationId, isVerified: true }),
-    ]);
+    const targets = await repos.targets.list({ organizationId, isVerified: true });
     const target =
       targets.find((t) => t.locationId === locationId && t.type === "TWOGIS_REVIEW") ??
       targets.find((t) => t.locationId === locationId) ??
@@ -273,14 +296,11 @@ export class AdminCardService {
       locationId,
       targetId: target?.id ?? null,
       activatedAt: this.clock().toISOString(),
-      cardLimit: subscription?.cardLimit ?? null,
     });
     if (!result.ok) {
-      throw result.reason === "LIMIT_EXCEEDED"
-        ? serviceError("CONFLICT", "cardLimitExceeded")
-        : result.reason === "NOT_UNASSIGNED"
-          ? serviceError("CONFLICT", "cardsNotUnassigned")
-          : serviceError("VALIDATION", "cardsNotFound");
+      throw result.reason === "NOT_UNASSIGNED"
+        ? serviceError("CONFLICT", "cardsNotUnassigned")
+        : serviceError("VALIDATION", "cardsNotFound");
     }
 
     await this.audit.recordMany(

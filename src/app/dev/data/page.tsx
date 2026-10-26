@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { resolveSubscriptionStatus } from "@/features/subscriptions/status";
 import { addDays, DEFAULT_TIME_ZONE, toLocalDate } from "@/lib/dates";
 import { getContainer } from "@/server/container";
 
@@ -30,26 +29,23 @@ export default async function DevDataPage() {
   const today = toLocalDate(now, DEFAULT_TIME_ZONE);
   const everything = { from: "2000-01-01T00:00:00Z", to: now.toISOString() };
 
-  const [organizations, locations, employees, cards, batches, settings, taps, stats, lastTaps] =
-    await Promise.all([
-      repos.organizations.list(),
-      repos.locations.list(),
-      repos.employees.list(),
-      repos.cards.list(),
-      repos.batches.list(),
-      repos.platformSettings.get(),
-      Promise.all(
-        (["valid", "bots", "duplicates"] as const).map((kind) =>
-          repos.tapEvents.count({ range: everything, kind }),
-        ),
+  const [organizations, locations, employees, cards, batches, taps, stats, lastTaps] = await Promise.all([
+    repos.organizations.list(),
+    repos.locations.list(),
+    repos.employees.list(),
+    repos.cards.list(),
+    repos.batches.list(),
+    Promise.all(
+      (["valid", "bots", "duplicates"] as const).map((kind) =>
+        repos.tapEvents.count({ range: everything, kind }),
       ),
-      repos.dailyStats.totalsBy({ from: addDays(today, -29), to: today }, "organizationId"),
-      repos.tapEvents.lastTapByCard({}),
-    ]);
+    ),
+    repos.dailyStats.totalsBy({ from: addDays(today, -29), to: today }, "organizationId"),
+    repos.tapEvents.lastTapByCard({}),
+  ]);
   const [validTaps = 0, bots = 0, duplicates = 0] = taps;
   const taps30 = new Map(stats.map((s) => [s.key, s.taps]));
-  const [subscriptions, snapshots, staff] = await Promise.all([
-    repos.subscriptions.list(),
+  const [snapshots, staff] = await Promise.all([
     repos.ratingSnapshots.list({ locationIds: locations.map((l) => l.id) }),
     repos.users.listPlatformStaff(),
   ]);
@@ -107,8 +103,6 @@ export default async function DevDataPage() {
           <TableHeader>
             <TableRow>
               <TableHead>{t("columns.name")}</TableHead>
-              <TableHead>{t("columns.plan")}</TableHead>
-              <TableHead>{t("columns.paidUntil")}</TableHead>
               <TableHead>{t("columns.status")}</TableHead>
               <TableHead className="text-right">{t("columns.locations")}</TableHead>
               <TableHead className="text-right">{t("columns.cards")}</TableHead>
@@ -117,22 +111,11 @@ export default async function DevDataPage() {
           </TableHeader>
           <TableBody>
             {organizations.map((org) => {
-              const subscription = subscriptions.find((s) => s.organizationId === org.id);
               const taps = taps30.get(org.id) ?? 0;
               return (
                 <TableRow key={org.id}>
                   <TableCell className="font-medium">{org.name}</TableCell>
-                  <TableCell>{subscription?.plan ?? t("none")}</TableCell>
-                  <TableCell>{subscription?.paidUntil ?? t("none")}</TableCell>
-                  <TableCell>
-                    {subscription ? (
-                      <Badge variant="outline">
-                        {resolveSubscriptionStatus(subscription, today, settings.graceDays)}
-                      </Badge>
-                    ) : (
-                      t("none")
-                    )}
-                  </TableCell>
+                  <TableCell>{org.status}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {locations.filter((l) => l.organizationId === org.id).length}
                   </TableCell>

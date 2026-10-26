@@ -28,30 +28,26 @@ export default async function EmployeesPage({ searchParams }: PageProps<"/app/em
     { period: searchParam(params.period), from: searchParam(params.from), to: searchParam(params.to) },
     today,
   );
-  const [employees, locations, subscription, t] = await Promise.all([
+  const [employees, locations, t] = await Promise.all([
     services.employees.list(ctx, period),
     services.locations.options(ctx),
-    services.subscription.view(ctx),
     getTranslations(),
   ]);
 
   return (
     <>
       <PageHeader title={t("app.pages.employees.title")} description={t("app.pages.employees.description")} />
-      {subscription.statsAllowed && (
-        <div className="mb-4 grid gap-3">
-          <PeriodFilter period={period.preset} from={period.from} to={period.to} today={today} />
-          <p className="flex items-start gap-2 text-sm text-muted-foreground">
-            <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            {t("employees.explanation")}
-          </p>
-        </div>
-      )}
+      <div className="mb-4 grid gap-3">
+        <PeriodFilter period={period.preset} from={period.from} to={period.to} today={today} />
+        <p className="flex items-start gap-2 text-sm text-muted-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          {t("employees.explanation")}
+        </p>
+      </div>
       <EmployeesTable
         employees={employees}
         locations={locations.map(({ id, name }) => ({ id, name }))}
         canManage={access.permissions.includes("org.employees.manage")}
-        showStats={subscription.statsAllowed}
       />
     </>
   );

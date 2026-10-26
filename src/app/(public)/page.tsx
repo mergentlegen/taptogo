@@ -1,14 +1,4 @@
-import {
-  ArrowRight,
-  ChartLine,
-  Check,
-  ChevronDown,
-  Mail,
-  MessageCircle,
-  Nfc,
-  Phone,
-  Smartphone,
-} from "lucide-react";
+import { ArrowRight, ChartLine, Check, ChevronDown, MessageCircle, Nfc, Smartphone } from "lucide-react";
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
@@ -16,13 +6,10 @@ import type { ReactNode } from "react";
 
 import { LogoMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { salesContacts } from "@/config/contacts";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { salesContacts, whatsappLink } from "@/config/contacts";
 import { DashboardPreview } from "@/features/landing/components/dashboard-preview";
-import { LeadForm } from "@/features/leads/components/lead-form";
-import { formatKzt } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { getServices } from "@/server/services";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations("metadata");
@@ -74,13 +61,10 @@ function Section({
 }
 
 export default async function HomePage() {
-  const [t, tPlans, plans] = await Promise.all([
-    getTranslations("public"),
-    getTranslations("subscription.plans"),
-    getServices().leads.plans(),
-  ]);
+  const t = await getTranslations("public");
   const faq = t.raw("faq.items") as FaqItem[];
-  const included = t.raw("pricing.included") as string[];
+  const included = t.raw("features.items") as string[];
+  const chat = whatsappLink(t("contact.message"));
 
   return (
     <>
@@ -98,10 +82,10 @@ export default async function HomePage() {
           <p className="max-w-xl text-lg text-balance text-muted-foreground">{t("home.subtitle")}</p>
           <div className="flex flex-wrap justify-center gap-3">
             <Button asChild size="lg">
-              <Link href={{ pathname: "/", hash: "contact" }}>
+              <a href={chat} target="_blank" rel="noopener noreferrer">
+                <MessageCircle data-icon="inline-start" />
                 {t("home.primaryCta")}
-                <ArrowRight data-icon="inline-end" />
-              </Link>
+              </a>
             </Button>
             <Button asChild size="lg" variant="outline">
               <Link href="/app">{t("home.secondaryCta")}</Link>
@@ -152,33 +136,13 @@ export default async function HomePage() {
       </Section>
 
       <Section
-        id="pricing"
-        eyebrow={t("pricing.eyebrow")}
-        title={t("pricing.title")}
-        subtitle={t("pricing.subtitle")}
+        id="features"
+        eyebrow={t("features.eyebrow")}
+        title={t("features.title")}
+        subtitle={t("features.subtitle")}
       >
-        <div className="grid gap-4 md:grid-cols-3">
-          {plans.map((plan) => (
-            <Card key={plan.plan} data-testid="plan">
-              <CardHeader>
-                <CardTitle className="text-lg">{tPlans(plan.plan)}</CardTitle>
-                <CardDescription>{t("pricing.cards", { count: plan.cardLimit })}</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-6">
-                <p>
-                  <span className="text-3xl font-bold tracking-tight">{formatKzt(plan.monthlyPriceKzt)}</span>{" "}
-                  <span className="text-muted-foreground">{t("pricing.perMonth")}</span>
-                </p>
-                <Button asChild variant="outline">
-                  <Link href={{ pathname: "/", hash: "contact" }}>{t("pricing.choose")}</Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <div className="grid gap-4 rounded-2xl border bg-card p-6">
-          <h3 className="font-semibold">{t("pricing.includedTitle")}</h3>
-          <ul className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mx-auto grid w-full max-w-3xl gap-4 rounded-2xl border bg-card p-6">
+          <ul className="grid gap-3 text-sm sm:grid-cols-2">
             {included.map((item) => (
               <li key={item} className="flex items-start gap-2">
                 <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
@@ -186,7 +150,7 @@ export default async function HomePage() {
               </li>
             ))}
           </ul>
-          <p className="text-sm text-muted-foreground">{t("pricing.note")}</p>
+          <p className="text-sm text-muted-foreground">{t("features.note")}</p>
         </div>
       </Section>
 
@@ -213,32 +177,18 @@ export default async function HomePage() {
         title={t("contact.title")}
         subtitle={t("contact.subtitle")}
       >
-        <div className="mx-auto grid w-full max-w-4xl gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
-          <Card>
-            <CardContent>
-              <LeadForm />
-            </CardContent>
-          </Card>
-          <div className="grid content-start gap-3 text-sm">
-            <p className="font-medium">{t("contact.orContact")}</p>
-            <a href={salesContacts.phoneHref} className="flex items-center gap-2 hover:underline">
-              <Phone className="size-4 text-primary" aria-hidden="true" />
-              {salesContacts.phone}
+        <div className="mx-auto grid justify-items-center gap-3 text-center">
+          <Button asChild size="lg">
+            <a href={chat} target="_blank" rel="noopener noreferrer">
+              <MessageCircle data-icon="inline-start" />
+              {t("contact.cta")}
+              <ArrowRight data-icon="inline-end" />
             </a>
-            <a
-              href={salesContacts.whatsappHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 hover:underline"
-            >
-              <MessageCircle className="size-4 text-primary" aria-hidden="true" />
-              {t("contact.whatsapp")}
-            </a>
-            <a href={`mailto:${salesContacts.email}`} className="flex items-center gap-2 hover:underline">
-              <Mail className="size-4 text-primary" aria-hidden="true" />
-              {salesContacts.email}
-            </a>
-          </div>
+          </Button>
+          <p className="text-sm text-muted-foreground">
+            {t("contact.numberLabel")}:{" "}
+            <span className="font-medium text-foreground">{salesContacts.whatsapp}</span>
+          </p>
         </div>
       </Section>
     </>

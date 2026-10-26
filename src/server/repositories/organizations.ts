@@ -1,7 +1,6 @@
 import type { Employee } from "@/features/employees/schemas";
 import type { Location, RatingSnapshot } from "@/features/locations/schemas";
 import type { Organization, OrganizationStatus } from "@/features/organizations/schemas";
-import type { Subscription } from "@/features/subscriptions/schemas";
 import type { RedirectTarget } from "@/features/targets/schemas";
 
 import type { DateRange, NewEntity, OrgScope } from "./common";
@@ -13,8 +12,8 @@ export interface OrganizationRepository {
   list(filter?: { statuses?: OrganizationStatus[]; search?: string }): Promise<Organization[]>;
   listByIds(ids: readonly string[]): Promise<Organization[]>;
   /**
-   * The "new client" wizard in ONE transaction: organization, its locations
-   * (each optionally with a verified 2GIS reviews target) and the subscription.
+   * The "new client" wizard in ONE transaction: organization and its locations
+   * (each optionally with a verified 2GIS reviews target).
    * Either everything is stored or nothing is.
    */
   createClient(input: NewClientInput): Promise<{ organization: Organization; locations: Location[] }>;
@@ -24,7 +23,6 @@ export interface OrganizationRepository {
 export type NewClientInput = {
   organization: NewEntity<Organization>;
   locations: { location: Omit<NewEntity<Location>, "organizationId">; reviewsTargetUrl: string | null }[];
-  subscription: Omit<Subscription, "organizationId">;
 };
 
 export type LocationPatch = Partial<Omit<Location, "id" | "organizationId" | "createdAt">>;

@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/data/empty-state";
 import { StatCard } from "@/components/data/stat-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { features } from "@/config/features";
 import {
   formatChange,
   formatIsoDate,
@@ -52,7 +53,9 @@ export async function DashboardView({ data }: { data: DashboardData }) {
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div
+        className={features.twogisApi ? "grid grid-cols-2 gap-3 lg:grid-cols-5" : "grid grid-cols-2 gap-3"}
+      >
         <StatCard
           testId="kpi-taps"
           label={t("kpi.taps")}
@@ -69,29 +72,33 @@ export async function DashboardView({ data }: { data: DashboardData }) {
           change={uniqueChange}
           changeCaption={caption(uniqueChange)}
         />
-        <StatCard
-          testId="kpi-rating"
-          label={t("kpi.rating")}
-          hint={t("kpi.ratingHint")}
-          value={kpis.rating.value === null ? t("kpi.noValue") : formatRating(kpis.rating.value)}
-          change={ratingDelta}
-          changeCaption={caption(ratingDelta)}
-        />
-        <StatCard
-          testId="kpi-reviews"
-          label={t("kpi.newReviews")}
-          value={kpis.newReviews.value === null ? t("kpi.noValue") : formatNumber(kpis.newReviews.value)}
-          change={reviewsChange}
-          changeCaption={caption(reviewsChange)}
-        />
-        <StatCard
-          testId="kpi-conversion"
-          label={t("kpi.conversion")}
-          hint={t("kpi.conversionHint")}
-          value={kpis.conversion.value === null ? t("kpi.noValue") : formatPercent(kpis.conversion.value)}
-          change={conversionChange}
-          changeCaption={caption(conversionChange)}
-        />
+        {features.twogisApi && (
+          <>
+            <StatCard
+              testId="kpi-rating"
+              label={t("kpi.rating")}
+              hint={t("kpi.ratingHint")}
+              value={kpis.rating.value === null ? t("kpi.noValue") : formatRating(kpis.rating.value)}
+              change={ratingDelta}
+              changeCaption={caption(ratingDelta)}
+            />
+            <StatCard
+              testId="kpi-reviews"
+              label={t("kpi.newReviews")}
+              value={kpis.newReviews.value === null ? t("kpi.noValue") : formatNumber(kpis.newReviews.value)}
+              change={reviewsChange}
+              changeCaption={caption(reviewsChange)}
+            />
+            <StatCard
+              testId="kpi-conversion"
+              label={t("kpi.conversion")}
+              hint={t("kpi.conversionHint")}
+              value={kpis.conversion.value === null ? t("kpi.noValue") : formatPercent(kpis.conversion.value)}
+              change={conversionChange}
+              changeCaption={caption(conversionChange)}
+            />
+          </>
+        )}
       </div>
 
       {!data.hasTaps ? (
@@ -119,38 +126,48 @@ export async function DashboardView({ data }: { data: DashboardData }) {
               />
               <ChartTable
                 summary={t("charts.showTable")}
-                headers={[t("charts.date"), t("charts.taps"), t("charts.reviews")]}
-                rows={data.daily.map((d) => [
-                  formatIsoDate(d.date, "long"),
-                  formatNumber(d.taps),
-                  d.reviewCount === null ? "—" : formatNumber(d.reviewCount),
-                ])}
+                headers={
+                  features.twogisApi
+                    ? [t("charts.date"), t("charts.taps"), t("charts.reviews")]
+                    : [t("charts.date"), t("charts.taps")]
+                }
+                rows={data.daily.map((d) =>
+                  features.twogisApi
+                    ? [
+                        formatIsoDate(d.date, "long"),
+                        formatNumber(d.taps),
+                        d.reviewCount === null ? "—" : formatNumber(d.reviewCount),
+                      ]
+                    : [formatIsoDate(d.date, "long"), formatNumber(d.taps)],
+                )}
               />
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{t("charts.reviewsTitle")}</CardTitle>
-              <CardDescription>{t("charts.reviewsDescription")}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {data.hasRatings ? (
-                <TimeSeriesChart
-                  kind="line"
-                  label={t("charts.reviews")}
-                  color="var(--chart-2)"
-                  data={data.daily.map((d) => ({ date: d.date, value: d.reviewCount }))}
-                  marker={marker}
-                  tightDomain
-                  height={180}
-                  ariaLabel={t("charts.reviewsTitle")}
-                />
-              ) : (
-                <p className="py-6 text-center text-sm text-muted-foreground">{t("noRatings")}</p>
-              )}
-            </CardContent>
-          </Card>
+          {features.twogisApi && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{t("charts.reviewsTitle")}</CardTitle>
+                <CardDescription>{t("charts.reviewsDescription")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {data.hasRatings ? (
+                  <TimeSeriesChart
+                    kind="line"
+                    label={t("charts.reviews")}
+                    color="var(--chart-2)"
+                    data={data.daily.map((d) => ({ date: d.date, value: d.reviewCount }))}
+                    marker={marker}
+                    tightDomain
+                    height={180}
+                    ariaLabel={t("charts.reviewsTitle")}
+                  />
+                ) : (
+                  <p className="py-6 text-center text-sm text-muted-foreground">{t("noRatings")}</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
             <Card>
@@ -248,8 +265,8 @@ export async function DashboardView({ data }: { data: DashboardData }) {
 export function DashboardSkeleton() {
   return (
     <div className="grid gap-4" aria-busy="true">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {Array.from({ length: 5 }, (_, i) => (
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: 2 }, (_, i) => (
           <Skeleton key={i} className="h-28" />
         ))}
       </div>

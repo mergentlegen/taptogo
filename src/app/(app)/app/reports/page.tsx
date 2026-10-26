@@ -5,7 +5,6 @@ import Link from "next/link";
 
 import { PeriodFilter } from "@/components/analytics/period-filter";
 import { PageHeader } from "@/components/layout/page-header";
-import { StatsGate } from "@/components/subscription/stats-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -65,8 +64,10 @@ export default async function ReportsPage({ searchParams }: PageProps<"/app/repo
   const period = resolvePeriod(raw, today);
   const dimension = reportDimensions.find((d) => d === searchParam(params.dimension)) ?? "days";
 
-  const [subscription, t] = await Promise.all([services.subscription.view(ctx), getTranslations("reports")]);
-  const report = subscription.statsAllowed ? await services.reports.build(ctx, period, dimension) : null;
+  const [report, t] = await Promise.all([
+    services.reports.build(ctx, period, dimension),
+    getTranslations("reports"),
+  ]);
 
   const query = (extra: Record<string, string>) => {
     const search = new URLSearchParams({
@@ -85,105 +86,103 @@ export default async function ReportsPage({ searchParams }: PageProps<"/app/repo
         description={t("exportHint")}
       />
 
-      <StatsGate subscription={subscription}>
-        {report && (
-          <div className="grid gap-4">
-            <div className="grid gap-3">
-              <PeriodFilter period={period.preset} from={period.from} to={period.to} today={today} />
-              <nav
-                aria-label={t("dimension")}
-                className="flex flex-wrap gap-1 rounded-lg bg-muted p-1 sm:w-fit"
-              >
-                {reportDimensions.map((d) => (
-                  <Link
-                    key={d}
-                    href={`/app/reports?${query({ dimension: d })}` as Route}
-                    scroll={false}
-                    aria-current={d === dimension ? "page" : undefined}
-                    className={cn(
-                      "rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
-                      d === dimension && "bg-background text-foreground shadow-sm",
-                    )}
-                  >
-                    {t(`dimensions.${d}`)}
-                  </Link>
-                ))}
-              </nav>
-            </div>
+      {report && (
+        <div className="grid gap-4">
+          <div className="grid gap-3">
+            <PeriodFilter period={period.preset} from={period.from} to={period.to} today={today} />
+            <nav
+              aria-label={t("dimension")}
+              className="flex flex-wrap gap-1 rounded-lg bg-muted p-1 sm:w-fit"
+            >
+              {reportDimensions.map((d) => (
+                <Link
+                  key={d}
+                  href={`/app/reports?${query({ dimension: d })}` as Route}
+                  scroll={false}
+                  aria-current={d === dimension ? "page" : undefined}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
+                    d === dimension && "bg-background text-foreground shadow-sm",
+                  )}
+                >
+                  {t(`dimensions.${d}`)}
+                </Link>
+              ))}
+            </nav>
+          </div>
 
-            <Card>
-              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle>{t("preview")}</CardTitle>
-                  <CardDescription>
-                    {formatIsoDate(period.from, "long")} — {formatIsoDate(period.to, "long")} ·{" "}
-                    {t("rows", { count: report.rows.length })}
-                  </CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button asChild variant="outline">
-                    <a href={`/app/reports/export?${query({ format: "csv" })}`} download>
-                      <Download data-icon="inline-start" />
-                      {t("exportCsv")}
-                    </a>
-                  </Button>
-                  <Button asChild>
-                    <a href={`/app/reports/export?${query({ format: "xlsx" })}`} download>
-                      <Download data-icon="inline-start" />
-                      {t("exportXlsx")}
-                    </a>
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="max-h-[32rem] overflow-auto rounded-lg border">
-                  <Table>
-                    <TableHeader className="sticky top-0 bg-card">
-                      <TableRow>
-                        {report.columns.map((column) => (
-                          <TableHead key={column} className={cn(NUMERIC.includes(column) && "text-right")}>
-                            {t(`columns.${column}`)}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {report.rows.slice(0, PREVIEW_ROWS).map((row, index) => (
-                        <TableRow key={index}>
-                          {report.columns.map((column) => (
-                            <TableCell
-                              key={column}
-                              className={cn(NUMERIC.includes(column) && "text-right tabular-nums")}
-                            >
-                              {display(column, row[column])}
-                            </TableCell>
-                          ))}
-                        </TableRow>
+          <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle>{t("preview")}</CardTitle>
+                <CardDescription>
+                  {formatIsoDate(period.from, "long")} — {formatIsoDate(period.to, "long")} ·{" "}
+                  {t("rows", { count: report.rows.length })}
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button asChild variant="outline">
+                  <a href={`/app/reports/export?${query({ format: "csv" })}`} download>
+                    <Download data-icon="inline-start" />
+                    {t("exportCsv")}
+                  </a>
+                </Button>
+                <Button asChild>
+                  <a href={`/app/reports/export?${query({ format: "xlsx" })}`} download>
+                    <Download data-icon="inline-start" />
+                    {t("exportXlsx")}
+                  </a>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-[32rem] overflow-auto rounded-lg border">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-card">
+                    <TableRow>
+                      {report.columns.map((column) => (
+                        <TableHead key={column} className={cn(NUMERIC.includes(column) && "text-right")}>
+                          {t(`columns.${column}`)}
+                        </TableHead>
                       ))}
-                    </TableBody>
-                    <TableFooter>
-                      <TableRow>
-                        {report.columns.map((column, index) => (
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {report.rows.slice(0, PREVIEW_ROWS).map((row, index) => (
+                      <TableRow key={index}>
+                        {report.columns.map((column) => (
                           <TableCell
                             key={column}
                             className={cn(NUMERIC.includes(column) && "text-right tabular-nums")}
                           >
-                            {index === 0
-                              ? t("total")
-                              : column in report.totals
-                                ? display(column, report.totals[column] ?? null)
-                                : ""}
+                            {display(column, row[column])}
                           </TableCell>
                         ))}
                       </TableRow>
-                    </TableFooter>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-      </StatsGate>
+                    ))}
+                  </TableBody>
+                  <TableFooter>
+                    <TableRow>
+                      {report.columns.map((column, index) => (
+                        <TableCell
+                          key={column}
+                          className={cn(NUMERIC.includes(column) && "text-right tabular-nums")}
+                        >
+                          {index === 0
+                            ? t("total")
+                            : column in report.totals
+                              ? display(column, report.totals[column] ?? null)
+                              : ""}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </>
   );
 }

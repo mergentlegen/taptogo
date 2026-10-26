@@ -1,3 +1,4 @@
+import { features } from "@/config/features";
 import type { CardStatus } from "@/features/cards/schemas";
 import { addDays, eachDate, toLocalDate, type IsoDate } from "@/lib/dates";
 import { serverText, serviceError } from "@/server/i18n";
@@ -51,7 +52,7 @@ export class LocationService {
     const locations = await repos.locations.list();
     const ids = locations.map((l) => l.id);
     const [snapshots, stats, cards] = await Promise.all([
-      repos.ratingSnapshots.list({ locationIds: ids }),
+      features.twogisApi ? repos.ratingSnapshots.list({ locationIds: ids }) : [],
       repos.dailyStats.totalsBy({ from, to: today }, "locationId"),
       repos.cards.list(),
     ]);
@@ -84,7 +85,7 @@ export class LocationService {
     const from = addDays(today, -(HISTORY_DAYS - 1));
     const statFilter = { locationId: location.id, from, to: today };
     const [snapshots, total, byDate, byCard, cards] = await Promise.all([
-      repos.ratingSnapshots.list({ locationIds: [location.id] }),
+      features.twogisApi ? repos.ratingSnapshots.list({ locationIds: [location.id] }) : [],
       repos.dailyStats.total(statFilter),
       repos.dailyStats.totalsBy(statFilter, "date"),
       repos.dailyStats.totalsBy(statFilter, "cardId"),

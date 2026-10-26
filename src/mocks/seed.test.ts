@@ -6,12 +6,9 @@ import { auditLogSchema } from "@/features/audit/schemas";
 import { cardBatchSchema } from "@/features/batches/schemas";
 import { cardSchema } from "@/features/cards/schemas";
 import { employeeSchema } from "@/features/employees/schemas";
-import { leadSchema } from "@/features/leads/schemas";
 import { locationSchema, ratingSnapshotSchema } from "@/features/locations/schemas";
 import { organizationSchema } from "@/features/organizations/schemas";
 import { platformSettingsSchema } from "@/features/platform/schemas";
-import { paymentSchema, subscriptionSchema } from "@/features/subscriptions/schemas";
-import { resolveSubscriptionStatus } from "@/features/subscriptions/status";
 import { internalCommentSchema, supportTicketSchema } from "@/features/support/schemas";
 import { redirectTargetSchema } from "@/features/targets/schemas";
 import { checkTargetUrl } from "@/features/targets/url-policy";
@@ -62,11 +59,8 @@ describe("seed validity", () => {
     expectAllValid(cardSchema, db.cards);
     expectAllValid(tapEventSchema, db.tapEvents);
     expectAllValid(dailyCardStatSchema, db.dailyStats);
-    expectAllValid(subscriptionSchema, db.subscriptions);
-    expectAllValid(paymentSchema, db.payments);
     expectAllValid(supportTicketSchema, db.tickets);
     expectAllValid(internalCommentSchema, db.comments);
-    expectAllValid(leadSchema, db.leads);
     expectAllValid(auditLogSchema, db.auditLogs);
     expectAllValid(platformSettingsSchema, [db.platformSettings]);
   });
@@ -163,14 +157,6 @@ describe("seed content (spec section 4)", () => {
     const orgsPerUser = new Map<string, number>();
     for (const m of db.memberships) orgsPerUser.set(m.userId, (orgsPerUser.get(m.userId) ?? 0) + 1);
     expect(Math.max(...orgsPerUser.values())).toBeGreaterThan(1);
-  });
-
-  it("covers active, grace and expired subscriptions", () => {
-    const today = toLocalDate(NOW, TZ);
-    const statuses = db.subscriptions.map((s) =>
-      resolveSubscriptionStatus(s, today, db.platformSettings.graceDays),
-    );
-    expect(statuses.sort()).toEqual(["ACTIVE", "EXPIRED", "GRACE"]);
   });
 });
 

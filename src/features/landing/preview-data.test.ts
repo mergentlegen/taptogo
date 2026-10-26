@@ -14,7 +14,16 @@ describe("landing dashboard preview", () => {
   it("keeps the headline numbers consistent with the chart", () => {
     const data = landingPreviewData("2026-10-17");
     expect(data.taps.current).toBe(data.daily.reduce((sum, d) => sum + d.taps, 0));
-    expect(data.conversion.current).toBeCloseTo(data.reviews.current / data.taps.current);
+    expect(data.perDay).toBe(Math.round(data.taps.current / 30));
     expect(data.daily.every((d) => d.taps > 0)).toBe(true);
+  });
+
+  it("shows no rating, review or conversion figures (they need the 2GIS API)", () => {
+    expect(Object.keys(landingPreviewData("2026-10-17")).sort()).toEqual([
+      "daily",
+      "perDay",
+      "taps",
+      "topEmployees",
+    ]);
   });
 });

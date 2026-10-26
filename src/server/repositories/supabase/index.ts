@@ -2,13 +2,8 @@ import "server-only";
 
 import type { Repositories } from "../index";
 import { supabaseDailyCardStatRepository, supabaseTapEventRepository } from "./analytics";
-import { supabasePaymentRepository, supabaseSubscriptionRepository } from "./billing";
 import { supabaseCardBatchRepository, supabaseCardRepository } from "./cards";
-import {
-  supabaseInternalCommentRepository,
-  supabaseLeadRepository,
-  supabaseSupportTicketRepository,
-} from "./inbox";
+import { supabaseInternalCommentRepository, supabaseSupportTicketRepository } from "./inbox";
 import {
   supabaseEmployeeRepository,
   supabaseLocationRepository,
@@ -40,10 +35,7 @@ export function createSupabaseRepositories(db: DbGetter): Repositories {
     cards: supabaseCardRepository(db),
     tapEvents: supabaseTapEventRepository(db),
     dailyStats: supabaseDailyCardStatRepository(db),
-    subscriptions: supabaseSubscriptionRepository(db),
-    payments: supabasePaymentRepository(db),
     tickets: supabaseSupportTicketRepository(db),
-    leads: supabaseLeadRepository(db),
     comments: supabaseInternalCommentRepository(db),
     auditLogs: supabaseAuditLogRepository(db),
     platformSettings: supabasePlatformSettingsRepository(db),

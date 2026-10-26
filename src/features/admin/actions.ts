@@ -10,18 +10,23 @@ import { runAdminAction } from "@/server/admin-action";
 import { authorizePlatformAction } from "@/server/auth/session";
 import type { FirmPreview } from "@/server/providers/reviews/types";
 import { getServices } from "@/server/services";
+import type { CreatedAccount } from "@/server/services/admin/client-service";
 
 import {
   assignCardsSchema,
   bulkCardStatusSchema,
   createBatchSchema,
+  deleteBatchSchema,
   flashCardSchema,
   parseCodes,
+  updateBatchSchema,
   type AssignCardsInput,
   type CreateBatchInput,
+  type UpdateBatchInput,
 } from "./card-schemas";
 import {
   addLocationSchema,
+  createAccountSchema,
   createClientSchema,
   inviteToClientSchema,
   markSentSchema,
@@ -38,28 +43,25 @@ import {
   createTargetSchema,
   impersonateSchema,
   platformSettingsFormSchema,
-  recordPaymentSchema,
   setStaffStatusSchema,
   setTargetVerifiedSchema,
   syncLocationSchema,
-  updateLeadSchema,
-  updateSubscriptionSchema,
   updateTicketSchema,
   type CreateStaffInput,
   type CreateTargetInput,
   type PlatformSettingsFormInput,
-  type RecordPaymentInput,
-  type UpdateSubscriptionInput,
 } from "./schemas";
 
 const admin = () => getServices().admin;
 
 // ── Clients ────────────────────────────────────────────────────────────────
 
-export async function createClientAction(input: CreateClientInput): Promise<ActionResult<{ id: string }>> {
+export async function createClientAction(
+  input: CreateClientInput,
+): Promise<ActionResult<{ id: string; account: CreatedAccount }>> {
   return runAdminAction("admin.manage", createClientSchema, input, async (ctx, data) => {
-    const organization = await admin().clients.create(ctx, data);
-    return { id: organization.id };
+    const { organization, account } = await admin().clients.create(ctx, data);
+    return { id: organization.id, account };
   });
 }
 
@@ -89,18 +91,31 @@ export async function setClientStatusAction(
   );
 }
 
-/** Invite (or re-invite) someone into a client's cabinet, e.g. when the wizard's email bounced. */
+/** An invitation link for someone to join a client's cabinet; the administrator copies and sends it. */
 export async function inviteToClientAction(
   input: z.input<typeof inviteToClientSchema>,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ link: string }>> {
   return runAdminAction(
     "admin.manage",
     inviteToClientSchema,
     input,
     async (ctx, { organizationId, ...invite }) => {
-      await admin().clients.invite(ctx, organizationId, invite);
-      return null;
+      const { link } = await admin().clients.invite(ctx, organizationId, invite);
+      return { link };
     },
+  );
+}
+
+/** Creates a client's account with a temporary password, shown once on the administrator's screen. */
+export async function createAccountAction(
+  input: z.input<typeof createAccountSchema>,
+): Promise<ActionResult<CreatedAccount>> {
+  return runAdminAction(
+    "admin.manage",
+    createAccountSchema,
+    input,
+    async (ctx, { organizationId, ...account }) =>
+      admin().clients.createAccount(ctx, organizationId, account),
   );
 }
 
@@ -181,6 +196,21 @@ export async function createBatchAction(input: CreateBatchInput): Promise<Action
   });
 }
 
+export async function updateBatchAction(input: UpdateBatchInput): Promise<ActionResult> {
+  return runAdminAction("admin.manage", updateBatchSchema, input, async (ctx, { batchId, ...patch }) => {
+    await admin().cards.updateBatch(ctx, batchId, patch);
+    return null;
+  });
+}
+
+/** Only a batch that was never handed out; otherwise a CONFLICT explains why. */
+export async function deleteBatchAction(input: { batchId: string }): Promise<ActionResult> {
+  return runAdminAction("admin.manage", deleteBatchSchema, input, async (ctx, { batchId }) => {
+    await admin().cards.deleteBatch(ctx, batchId);
+    return null;
+  });
+}
+
 export async function assignCardsAction(input: AssignCardsInput): Promise<ActionResult<{ count: number }>> {
   return runAdminAction("admin.manage", assignCardsSchema, input, async (ctx, data) => {
     const service = admin().cards;
@@ -244,24 +274,6 @@ export async function checkTargetUrlAction(input: { url: string }): Promise<Acti
 
 // ── Billing ────────────────────────────────────────────────────────────────
 
-export async function recordPaymentAction(
-  input: RecordPaymentInput,
-): Promise<ActionResult<{ paidUntil: string }>> {
-  return runAdminAction("admin.manage", recordPaymentSchema, input, async (ctx, data) => {
-    const { paidUntil } = await admin().billing.recordPayment(ctx, data);
-    return { paidUntil };
-  });
-}
-
-export async function updateSubscriptionAction(input: UpdateSubscriptionInput): Promise<ActionResult> {
-  return runAdminAction("admin.manage", updateSubscriptionSchema, input, async (ctx, data) => {
-    await admin().billing.updateSubscription(ctx, data);
-    return null;
-  });
-}
-
-// ── Integrations ───────────────────────────────────────────────────────────
-
 export async function syncLocationAction(input: { locationId: string }): Promise<ActionResult> {
   return runAdminAction("admin.manage", syncLocationSchema, input, async (ctx, { locationId }) => {
     await admin().integrations.sync(ctx, locationId);
@@ -278,13 +290,6 @@ export async function syncAllAction(): Promise<ActionResult<{ synced: number; sk
 export async function updateTicketAction(input: z.input<typeof updateTicketSchema>): Promise<ActionResult> {
   return runAdminAction("admin.inbox", updateTicketSchema, input, async (ctx, { ticketId, ...patch }) => {
     await admin().inbox.updateTicket(ctx, ticketId, patch);
-    return null;
-  });
-}
-
-export async function updateLeadAction(input: z.input<typeof updateLeadSchema>): Promise<ActionResult> {
-  return runAdminAction("admin.inbox", updateLeadSchema, input, async (ctx, { leadId, ...patch }) => {
-    await admin().inbox.updateLead(ctx, leadId, patch);
     return null;
   });
 }
@@ -326,14 +331,12 @@ export async function setStaffStatusAction(
 
 export async function updateSettingsAction(input: PlatformSettingsFormInput): Promise<ActionResult> {
   return runAdminAction("admin.settings.manage", platformSettingsFormSchema, input, async (ctx, form) => {
-    // Re-validate the assembled settings with the canonical schema (domain format, 3 plans).
+    // Re-validate the assembled settings with the canonical schema (domain format).
     const settings = platformSettingsSchema.parse({
       allowedRedirectDomains: form.domains
         .split(/\s+/)
         .map((d) => d.trim())
         .filter(Boolean),
-      graceDays: form.graceDays,
-      plans: form.plans,
     });
     await admin().settings.update(ctx, settings);
     return null;

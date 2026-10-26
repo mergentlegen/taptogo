@@ -1,4 +1,4 @@
-import type { InternalCommentRepository, LeadRepository, SupportTicketRepository } from "../inbox";
+import type { InternalCommentRepository, SupportTicketRepository } from "../inbox";
 import {
   applyPatch,
   clone,
@@ -39,34 +39,6 @@ export function mockSupportTicketRepository({ db, clock, newId }: MockContext): 
       applyPatch(ticket, patch);
       ticket.updatedAt = clock().toISOString();
       return clone(ticket);
-    },
-  };
-}
-
-export function mockLeadRepository({ db, clock, newId }: MockContext): LeadRepository {
-  return {
-    async findById(id) {
-      return cloneOrNull(db.leads.find((l) => l.id === id));
-    },
-    async list(filter) {
-      return clone(
-        newestFirst(db.leads.filter((l) => !filter.statuses || filter.statuses.includes(l.status))).slice(
-          0,
-          filter.limit,
-        ),
-      );
-    },
-    async create(input) {
-      const lead = { ...clone(input), id: newId(), createdAt: clock().toISOString() };
-      db.leads.push(lead);
-      return clone(lead);
-    },
-    async update(id, patch) {
-      const lead = requireRow(
-        db.leads.find((l) => l.id === id),
-        "Lead",
-      );
-      return clone(applyPatch(lead, patch));
     },
   };
 }

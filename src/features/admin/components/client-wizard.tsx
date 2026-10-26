@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Controller, useFieldArray, useForm, type FieldPath } from "react-hook-form";
+import { useFieldArray, useForm, type FieldPath } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
 
@@ -15,50 +15,45 @@ import { FormField } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { features } from "@/config/features";
-import type { PlanConfig } from "@/features/platform/schemas";
-import { formatKzt, formatNumber, formatRating } from "@/lib/format";
+import { formatNumber, formatRating } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { FirmPreview } from "@/server/providers/reviews/types";
+import type { CreatedAccount } from "@/server/services/admin/client-service";
 
 import { createClientAction, resolveTwogisAction } from "../actions";
 import { createClientSchema } from "../client-schemas";
+import { AccountCredentials } from "./account-credentials";
 
 type Values = z.input<typeof createClientSchema>;
-const STEPS = ["organization", "locations", "owner", "plan"] as const;
+const STEPS = ["organization", "locations", "owner"] as const;
 
 /** Fields validated before leaving each step. */
 const STEP_FIELDS: Record<(typeof STEPS)[number], FieldPath<Values>[]> = {
   organization: [
     "organization.name",
-    "organization.legalName",
-    "organization.bin",
     "organization.contactName",
     "organization.contactPhone",
     "organization.contactEmail",
   ],
   locations: ["locations"],
-  owner: ["owner.email"],
-  plan: ["subscription.plan", "subscription.paidUntil"],
+  owner: ["owner.name", "owner.email"],
 };
 
-export function ClientWizard({ plans, defaultPaidUntil }: { plans: PlanConfig[]; defaultPaidUntil: string }) {
+export function ClientWizard() {
   const t = useTranslations();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ id: string; account: CreatedAccount } | null>(null);
   const [previews, setPreviews] = useState<Record<number, FirmPreview | "missing">>({});
   const form = useForm<Values, unknown, z.output<typeof createClientSchema>>({
     resolver: zodResolver(createClientSchema),
     defaultValues: {
-      organization: { name: "", legalName: "", bin: "", contactName: "", contactPhone: "", contactEmail: "" },
+      organization: { name: "", contactName: "", contactPhone: "", contactEmail: "" },
       locations: [{ name: "", address: "", twogisUrl: "" }],
-      owner: { email: "" },
-      subscription: { plan: "BUSINESS", paidUntil: defaultPaidUntil, trial: true },
+      owner: { name: "", email: "" },
     },
   });
   const locations = useFieldArray({ control: form.control, name: "locations" });
@@ -87,7 +82,8 @@ export function ClientWizard({ plans, defaultPaidUntil }: { plans: PlanConfig[];
       const result = await createClientAction(form.getValues());
       if (result.ok) {
         toast.success(t("adm.clients.wizard.created"));
-        router.push(`/admin/organizations/${result.data.id}` as Route);
+        // The password is shown once: stay here until the administrator has copied it.
+        setCreated(result.data);
       } else {
         setFormError(result.error.message);
       }
@@ -105,6 +101,25 @@ export function ClientWizard({ plans, defaultPaidUntil }: { plans: PlanConfig[];
       </FormField>
     );
   };
+
+  if (created) {
+    return (
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle>{t("adm.clients.wizard.doneTitle")}</CardTitle>
+          <CardDescription>{t("adm.clients.wizard.doneText")}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <AccountCredentials account={created.account} />
+          <div>
+            <Button onClick={() => router.push(`/admin/organizations/${created.id}` as Route)}>
+              {t("adm.clients.wizard.openClient")}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[14rem_minmax(0,1fr)]">
@@ -150,10 +165,6 @@ export function ClientWizard({ plans, defaultPaidUntil }: { plans: PlanConfig[];
               <div className="sm:col-span-2">
                 {text("organization.name", t("settings.organization.name"))}
               </div>
-              <div className="sm:col-span-2">
-                {text("organization.legalName", t("settings.organization.legalName"))}
-              </div>
-              {text("organization.bin", t("settings.organization.bin"), { inputMode: "numeric" })}
               {text("organization.contactName", t("settings.organization.contactName"))}
               {text("organization.contactPhone", t("settings.organization.contactPhone"), {
                 type: "tel",
@@ -244,45 +255,9 @@ export function ClientWizard({ plans, defaultPaidUntil }: { plans: PlanConfig[];
           )}
 
           {current === "owner" && (
-            <div className="max-w-md">
-              {text("owner.email", t("adm.clients.wizard.ownerEmail"), { type: "email" })}
-            </div>
-          )}
-
-          {current === "plan" && (
             <div className="grid max-w-md gap-4">
-              <Controller
-                control={form.control}
-                name="subscription.plan"
-                render={({ field }) => (
-                  <FormField label={t("adm.clients.wizard.plan")}>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {plans.map((p) => (
-                          <SelectItem key={p.plan} value={p.plan}>
-                            {t(`subscription.plans.${p.plan}`)} · {p.cardLimit} ·{" "}
-                            {formatKzt(p.monthlyPriceKzt)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-                )}
-              />
-              {text("subscription.paidUntil", t("adm.clients.wizard.paidUntil"), { type: "date" })}
-              <Controller
-                control={form.control}
-                name="subscription.trial"
-                render={({ field }) => (
-                  <div className="flex items-center gap-3">
-                    <Switch id="wizard-trial" checked={field.value} onCheckedChange={field.onChange} />
-                    <Label htmlFor="wizard-trial">{t("adm.clients.wizard.trial")}</Label>
-                  </div>
-                )}
-              />
+              {text("owner.name", t("adm.clients.wizard.ownerName"))}
+              {text("owner.email", t("adm.clients.wizard.ownerEmail"), { type: "email" })}
             </div>
           )}
 

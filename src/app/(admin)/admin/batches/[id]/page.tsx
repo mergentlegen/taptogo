@@ -7,7 +7,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FlashRow } from "@/features/admin/components/batch-components";
+import { BatchActions, FlashRow } from "@/features/admin/components/batch-components";
 import { requirePlatformAccess } from "@/server/auth/session";
 import { can } from "@/server/permissions";
 import { getServices } from "@/server/services";
@@ -43,16 +43,16 @@ export default async function BatchFlashPage({ params }: PageProps<"/admin/batch
         })}
         actions={
           <>
-            <Button asChild variant="outline">
-              <a href={`/admin/batches/${batch.id}/export?format=csv`} download>
-                <Download data-icon="inline-start" />
-                {t("batches.exportCsv")}
-              </a>
-            </Button>
+            {can(actor, "admin.manage") && (
+              <BatchActions
+                batch={{ id: batch.id, name: batch.name, notes: batch.notes }}
+                redirectTo="/admin/batches"
+              />
+            )}
             <Button asChild>
-              <a href={`/admin/batches/${batch.id}/export?format=zip`} download>
+              <a href={`/admin/batches/${batch.id}/export`} download>
                 <Download data-icon="inline-start" />
-                {t("batches.exportZip")}
+                {t("batches.exportQr")}
               </a>
             </Button>
           </>

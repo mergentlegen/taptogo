@@ -4,7 +4,6 @@ import { Suspense } from "react";
 
 import { PeriodFilter } from "@/components/analytics/period-filter";
 import { PageHeader } from "@/components/layout/page-header";
-import { StatsGate } from "@/components/subscription/stats-gate";
 import { DashboardSkeleton, DashboardView } from "@/features/analytics/components/dashboard-view";
 import { toLocalDate } from "@/lib/dates";
 import { resolvePeriod, searchParam, type Period } from "@/lib/period";
@@ -19,7 +18,6 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("title") };
 }
 
-/** Expired subscriptions never reach this: no statistics are computed or sent. */
 async function DashboardData({
   ctx,
   period,
@@ -51,10 +49,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
     cardId: searchParam(params.card),
   };
 
-  const [subscription, options] = await Promise.all([
-    services.subscription.view(ctx),
-    services.analytics.options(ctx),
-  ]);
+  const options = await services.analytics.options(ctx);
   // Only this organization's ids survive; anything else in the URL is ignored.
   const filter = {
     locationId: options.locations.some((l) => l.id === requested.locationId)
@@ -98,11 +93,9 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
         />
       </div>
       {/* Guards ran above, so 403/404 statuses are final before anything streams. */}
-      <StatsGate subscription={subscription}>
-        <Suspense fallback={<DashboardSkeleton />}>
-          <DashboardData ctx={ctx} period={period} filter={filter} />
-        </Suspense>
-      </StatsGate>
+      <Suspense fallback={<DashboardSkeleton />}>
+        <DashboardData ctx={ctx} period={period} filter={filter} />
+      </Suspense>
     </>
   );
 }

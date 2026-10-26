@@ -3,9 +3,8 @@ import { z } from "zod";
 
 import { resetPasswordSchema } from "@/features/auth/schemas";
 import { cardStatusSchema } from "@/features/cards/schemas";
-import { submitLeadSchema } from "@/features/leads/schemas";
 
-import { emailSchema, emptyToNull, phoneSchema, textSchema } from "./schemas";
+import { emailSchema, emptyToNull, phoneInputSchema, phoneSchema, textSchema } from "./schemas";
 
 // The locale is installed by tests/stubs/validation-locale.ts, like in the app.
 const firstMessage = (schema: z.ZodType, input: unknown) => {
@@ -40,8 +39,10 @@ describe("validation messages", () => {
 
   it("show the real reason inside optional fields, not the union noise", () => {
     expect(firstMessage(emptyToNull(phoneSchema), "123")).toBe("Формат: +7XXXXXXXXXX");
-    const lead = submitLeadSchema.safeParse({ name: "", phone: "8 700", businessName: "Кофейня" });
-    const byField = z.flattenError(lead.error!).fieldErrors;
+    const form = z
+      .object({ name: textSchema(120), phone: phoneInputSchema })
+      .safeParse({ name: "", phone: "8 700" });
+    const byField = z.flattenError(form.error!).fieldErrors;
     expect(byField.name).toEqual(["Обязательное поле"]);
     expect(byField.phone).toEqual(["Формат: +7XXXXXXXXXX"]);
   });

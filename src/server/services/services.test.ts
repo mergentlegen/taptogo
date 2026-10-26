@@ -139,10 +139,11 @@ describe("dashboard", () => {
     expect(data.daily.reduce((sum, d) => sum + d.taps, 0)).toBe(data.kpis.taps.value);
     expect(data.sources.NFC + data.sources.QR).toBe(data.kpis.taps.value);
     expect(data.kpis.uniqueVisitors.value).toBeLessThanOrEqual(data.kpis.taps.value);
-    expect(data.kpis.rating.value).toBeGreaterThan(3);
-    expect(data.kpis.newReviews.value).toBeGreaterThan(0);
-    expect(data.kpis.conversion.value).toBeGreaterThan(0);
-    expect(data.kpis.conversion.value).toBeLessThan(1);
+    // Ratings and reviews come from the 2GIS API, which is switched off: nothing is shown or loaded.
+    expect(data.kpis.rating.value).toBeNull();
+    expect(data.kpis.newReviews.value).toBeNull();
+    expect(data.kpis.conversion.value).toBeNull();
+    expect(data.hasRatings).toBe(false);
     expect(data.topCards.length).toBeLessThanOrEqual(5);
     expect(data.heatmap.reduce((sum, c) => sum + c.taps, 0)).toBeGreaterThan(0);
   });
@@ -156,17 +157,6 @@ describe("dashboard", () => {
     expect(one.filter.locationId).toBe(location!.id);
     expect(one.kpis.taps.value).toBeGreaterThan(0);
     expect(one.kpis.taps.value).toBeLessThan(all.kpis.taps.value);
-  });
-
-  it("hides statistics when the subscription expired", async () => {
-    const beautyOwner = await container.repositories.users.findByEmail("owner@arubeauty.kz");
-    const view = await services.subscription.view({
-      ...ownerA,
-      userId: beautyOwner!.id,
-      organizationId: orgB,
-    });
-    expect(view).toMatchObject({ status: "EXPIRED", statsAllowed: false });
-    expect((await services.subscription.view(ownerA)).statsAllowed).toBe(true);
   });
 });
 
@@ -230,15 +220,18 @@ describe("team", () => {
     });
   });
 
-  it("invites by email, replacing an earlier pending invitation", async () => {
-    await services.team.invite(ownerA, { email: "New@Coffeepoint.kz", role: "OWNER" });
-    await services.team.invite(ownerA, { email: "new@coffeepoint.kz", role: "MANAGER" });
+  it("invites with a link to copy, replacing an earlier pending invitation", async () => {
+    const first = await services.team.invite(ownerA, { email: "New@Coffeepoint.kz", role: "OWNER" });
+    const { link } = await services.team.invite(ownerA, { email: "new@coffeepoint.kz", role: "MANAGER" });
 
     const { invitations } = await services.team.list(ownerA);
     const mine = invitations.filter((i) => i.email === "new@coffeepoint.kz");
     expect(mine).toHaveLength(1);
     expect(mine[0]?.role).toBe("MANAGER");
-    expect((await container.outbox.list())[0]?.text).toMatch(/\/invite\/[A-Za-z0-9_-]{43}/);
+    expect(link).toMatch(/\/invite\/[A-Za-z0-9_-]{43}$/);
+    expect(link).not.toBe(first.link);
+    // No mail service: nothing is queued for manual sending either.
+    expect(await container.outbox.list()).toEqual([]);
   });
 
   it("refuses to invite an existing member", async () => {
@@ -322,8 +315,6 @@ describe("permission checks inside services (not only in actions)", () => {
     await expect(
       services.account.updateOrganization(as("MANAGER"), {
         name: "Новое имя",
-        legalName: null,
-        bin: null,
         contactName: "Имя",
         contactPhone: "+77010000000",
         contactEmail: "a@b.kz",

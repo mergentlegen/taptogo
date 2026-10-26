@@ -1,7 +1,6 @@
 import type { DailyCardStatRepository, TapEventRepository } from "./analytics";
-import type { PaymentRepository, SubscriptionRepository } from "./billing";
 import type { CardBatchRepository, CardRepository } from "./cards";
-import type { InternalCommentRepository, LeadRepository, SupportTicketRepository } from "./inbox";
+import type { InternalCommentRepository, SupportTicketRepository } from "./inbox";
 import type {
   EmployeeRepository,
   LocationRepository,
@@ -26,17 +25,13 @@ export type Repositories = {
   cards: CardRepository;
   tapEvents: TapEventRepository;
   dailyStats: DailyCardStatRepository;
-  subscriptions: SubscriptionRepository;
-  payments: PaymentRepository;
   tickets: SupportTicketRepository;
-  leads: LeadRepository;
   comments: InternalCommentRepository;
   auditLogs: AuditLogRepository;
   platformSettings: PlatformSettingsRepository;
 };
 
 export type * from "./analytics";
-export type * from "./billing";
 export type * from "./cards";
 export type * from "./common";
 export type * from "./inbox";

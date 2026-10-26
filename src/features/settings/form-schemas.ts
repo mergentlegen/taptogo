@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { newPasswordSchema, PASSWORD_MAX_LENGTH } from "@/features/auth/schemas";
-import { binSchema, emailSchema, emptyToNull, phoneSchema, textSchema } from "@/lib/schemas";
+import { emailSchema, emptyToNull, phoneSchema, textSchema } from "@/lib/schemas";
 import { validationMessage } from "@/lib/validation-messages";
 
 export const profileSchema = z.object({
@@ -24,10 +24,8 @@ export type ChangePasswordInput = z.input<typeof changePasswordSchema>;
 
 export const organizationSchema = z.object({
   name: textSchema(120),
-  legalName: emptyToNull(textSchema(200)),
-  bin: emptyToNull(binSchema),
-  contactName: textSchema(120),
-  contactPhone: phoneSchema,
-  contactEmail: emailSchema,
+  contactName: emptyToNull(textSchema(120)),
+  contactPhone: emptyToNull(phoneSchema),
+  contactEmail: emptyToNull(emailSchema),
 });
 export type OrganizationInput = z.input<typeof organizationSchema>;

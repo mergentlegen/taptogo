@@ -41,14 +41,8 @@ create type public.card_status         as enum ('UNASSIGNED', 'ACTIVE', 'PAUSED'
 create type public.tap_source          as enum ('NFC', 'QR');
 create type public.device_type         as enum ('MOBILE', 'TABLET', 'DESKTOP', 'UNKNOWN');
 create type public.operating_system    as enum ('IOS', 'ANDROID', 'WINDOWS', 'MACOS', 'LINUX', 'OTHER');
-create type public.plan                as enum ('START', 'BUSINESS', 'NETWORK');
--- В БД хранится только TRIAL осмысленно; ACTIVE/GRACE/EXPIRED приложение
--- пересчитывает из paid_until (src/features/subscriptions/status.ts).
-create type public.subscription_status as enum ('TRIAL', 'ACTIVE', 'GRACE', 'EXPIRED');
-create type public.payment_method      as enum ('KASPI', 'BANK_TRANSFER', 'CASH');
 create type public.ticket_status       as enum ('NEW', 'IN_PROGRESS', 'CLOSED');
-create type public.lead_status         as enum ('NEW', 'IN_PROGRESS', 'CONVERTED', 'REJECTED');
-create type public.comment_subject     as enum ('TICKET', 'LEAD');
+create type public.comment_subject     as enum ('TICKET');
 
 
 -- -----------------------------------------------------------------------------
@@ -76,11 +70,10 @@ create index users_platform_role_idx on public.users (platform_role) where platf
 create table public.organizations (
   id             uuid primary key default gen_random_uuid(),
   name           text not null check (char_length(name) between 1 and 120),
-  legal_name     text check (char_length(legal_name) <= 200),
-  bin            text check (bin ~ '^[0-9]{12}$'),
-  contact_name   text not null check (char_length(contact_name) between 1 and 120),
-  contact_phone  text not null check (contact_phone ~ '^\+7[0-9]{10}$'),
-  contact_email  text not null check (char_length(contact_email) <= 254),
+  -- Контактное лицо необязательно: для работы нужны только название и адрес филиала.
+  contact_name   text check (char_length(contact_name) between 1 and 120),
+  contact_phone  text check (contact_phone ~ '^\+7[0-9]{10}$'),
+  contact_email  text check (char_length(contact_email) <= 254),
   timezone       text not null default 'Asia/Almaty',
   status         public.organization_status not null default 'ACTIVE',
   created_at     timestamptz not null default now()
@@ -288,32 +281,7 @@ create index daily_card_stats_org_date_idx on public.daily_card_stats (organizat
 
 
 -- -----------------------------------------------------------------------------
--- Подписки и платежи
--- -----------------------------------------------------------------------------
-
-create table public.subscriptions (
-  organization_id uuid primary key references public.organizations (id) on delete cascade,
-  plan            public.plan not null,
-  card_limit      integer not null check (card_limit between 0 and 10000),
-  -- Последний оплаченный день включительно, по часовому поясу организации.
-  paid_until      date not null,
-  status          public.subscription_status not null default 'TRIAL'
-);
-
-create table public.payments (
-  id              uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references public.organizations (id),
-  amount_kzt      integer not null check (amount_kzt > 0),  -- целые тенге
-  paid_at         timestamptz not null,
-  method          public.payment_method not null,
-  comment         text check (char_length(comment) <= 500),
-  recorded_by_id  uuid references public.users (id) on delete set null
-);
-create index payments_organization_paid_idx on public.payments (organization_id, paid_at desc);
-
-
--- -----------------------------------------------------------------------------
--- Обращения, лиды, внутренние комментарии
+-- Обращения и внутренние комментарии
 -- -----------------------------------------------------------------------------
 
 create table public.support_tickets (
@@ -330,33 +298,17 @@ create table public.support_tickets (
 create index support_tickets_organization_idx on public.support_tickets (organization_id, created_at desc);
 create index support_tickets_status_idx       on public.support_tickets (status) where status <> 'CLOSED';
 
--- Заявки с лендинга. IP отправителя не хранится (лимит частоты — в Redis/памяти).
-create table public.leads (
-  id            uuid primary key default gen_random_uuid(),
-  name          text not null check (char_length(name) between 1 and 120),
-  phone         text not null check (phone ~ '^\+7[0-9]{10}$'),
-  business_name text not null check (char_length(business_name) between 1 and 160),
-  city          text check (char_length(city) <= 80),
-  message       text check (char_length(message) <= 2000),
-  status        public.lead_status not null default 'NEW',
-  assignee_id   uuid references public.users (id) on delete set null,
-  created_at    timestamptz not null default now()
-);
-create index leads_status_idx on public.leads (status, created_at desc);
-
 -- Covering indexes for foreign keys (deletes/updates of the referenced row scan these).
 create index employees_location_id_idx on public.employees (location_id) where location_id is not null;
 create index redirect_targets_location_id_idx on public.redirect_targets (location_id) where location_id is not null;
 create index impersonation_sessions_organization_id_idx on public.impersonation_sessions (organization_id);
 create index impersonation_sessions_staff_user_id_idx on public.impersonation_sessions (staff_user_id);
 create index invitations_invited_by_id_idx on public.invitations (invited_by_id);
-create index leads_assignee_id_idx on public.leads (assignee_id) where assignee_id is not null;
-create index payments_recorded_by_id_idx on public.payments (recorded_by_id);
 create index support_tickets_assignee_id_idx on public.support_tickets (assignee_id) where assignee_id is not null;
 create index support_tickets_author_id_idx on public.support_tickets (author_id);
 
--- Заметки сотрудников по обращениям и лидам; клиент их никогда не видит.
--- subject_id полиморфный (ticket или lead), поэтому без внешнего ключа.
+-- Заметки сотрудников по обращениям; клиент их никогда не видит.
+-- subject_id полиморфный (тип темы в subject_type), поэтому без внешнего ключа.
 create table public.internal_comments (
   id           uuid primary key default gen_random_uuid(),
   subject_type public.comment_subject not null,
@@ -392,21 +344,13 @@ create index audit_logs_organization_idx on public.audit_logs (organization_id, 
 create index audit_logs_actor_idx        on public.audit_logs (actor_user_id, created_at desc);
 create index audit_logs_entity_idx       on public.audit_logs (entity_type, entity_id);
 
--- Одна строка. Тарифы и лимиты живут здесь, а не в коде.
+-- Одна строка: настройки платформы.
 create table public.platform_settings (
   id                       boolean primary key default true check (id),
-  allowed_redirect_domains text[] not null check (cardinality(allowed_redirect_domains) between 1 and 50),
-  grace_days               integer not null check (grace_days between 0 and 60),
-  -- [{ "plan": "START", "cardLimit": 10, "monthlyPriceKzt": 9900 }, ...] —
-  -- проверяется Zod-схемой platformSettingsSchema при каждом чтении и записи.
-  plans                    jsonb not null check (jsonb_typeof(plans) = 'array' and jsonb_array_length(plans) = 3)
+  allowed_redirect_domains text[] not null check (cardinality(allowed_redirect_domains) between 1 and 50)
 );
-insert into public.platform_settings (allowed_redirect_domains, grace_days, plans) values (
-  array['2gis.kz', '2gis.ru', 'go.2gis.com', 'google.com', 'maps.app.goo.gl', 'g.page'],
-  7,
-  '[{"plan":"START","cardLimit":10,"monthlyPriceKzt":9900},
-    {"plan":"BUSINESS","cardLimit":30,"monthlyPriceKzt":19900},
-    {"plan":"NETWORK","cardLimit":100,"monthlyPriceKzt":49900}]'
+insert into public.platform_settings (allowed_redirect_domains) values (
+  array['2gis.kz', '2gis.ru', 'go.2gis.com', 'google.com', 'maps.app.goo.gl', 'g.page']
 );
 
 
@@ -519,10 +463,7 @@ alter table public.card_batches           enable row level security;
 alter table public.cards                  enable row level security;
 alter table public.tap_events             enable row level security;
 alter table public.daily_card_stats       enable row level security;
-alter table public.subscriptions          enable row level security;
-alter table public.payments               enable row level security;
 alter table public.support_tickets        enable row level security;
-alter table public.leads                  enable row level security;
 alter table public.internal_comments      enable row level security;
 alter table public.audit_logs             enable row level security;
 alter table public.platform_settings      enable row level security;
@@ -670,20 +611,6 @@ create policy tap_events_select on public.tap_events for select to authenticated
 create policy daily_card_stats_select on public.daily_card_stats for select to authenticated
   using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 
--- subscriptions, payments -------------------------------------------------------
--- Подписку видят члены (баннер «подписка истекла», лимит карточек);
--- платежи — только сотрудники. Записывает администратор.
-create policy subscriptions_select on public.subscriptions for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
-create policy subscriptions_write on public.subscriptions for all to authenticated
-  using ((select private.is_platform_admin()))
-  with check ((select private.is_platform_admin()));
-
-create policy payments_select on public.payments for select to authenticated
-  using ((select private.is_platform_admin()));
-create policy payments_insert on public.payments for insert to authenticated
-  with check ((select private.is_platform_admin()) and recorded_by_id = (select auth.uid()));
-
 -- support_tickets ---------------------------------------------------------------
 -- Клиент (любая роль) создаёт обращение от своего имени и видит обращения
 -- своей организации. Статус и ответственного меняет администратор.
@@ -695,15 +622,8 @@ create policy support_tickets_update on public.support_tickets for update to aut
   using ((select private.is_platform_admin()))
   with check ((select private.is_platform_admin()));
 
--- leads, internal_comments ------------------------------------------------------
--- Только сотрудники. Заявку с лендинга (анонимный посетитель) вставляет
--- сервер через service_role после проверки Zod и лимита частоты.
-create policy leads_select on public.leads for select to authenticated
-  using ((select private.is_platform_admin()));
-create policy leads_update on public.leads for update to authenticated
-  using ((select private.is_platform_admin()))
-  with check ((select private.is_platform_admin()));
-
+-- internal_comments -------------------------------------------------------------
+-- Только сотрудники.
 create policy internal_comments_select on public.internal_comments for select to authenticated
   using ((select private.is_platform_admin()));
 create policy internal_comments_insert on public.internal_comments for insert to authenticated
@@ -722,8 +642,7 @@ create policy audit_logs_insert on public.audit_logs for insert to authenticated
 revoke update, delete, truncate on public.audit_logs from anon, authenticated, service_role;
 
 -- platform_settings -------------------------------------------------------------
--- Читают все вошедшие (лимиты тарифов, grace-период, allowlist); лендинг
--- получает тарифы на сервере. Меняет администратор.
+-- Читают все вошедшие (allowlist ссылок). Меняет администратор.
 create policy platform_settings_select on public.platform_settings for select to authenticated
   using (true);
 create policy platform_settings_update on public.platform_settings for update to authenticated
@@ -958,17 +877,15 @@ begin
 end;
 $$;
 
--- CardRepository.assign. Блокирует карточки и подписку клиента, затем заново
--- проверяет «всё ещё свободны» и лимит тарифа. Два одновременных назначения
--- одной карточки выстраиваются в очередь: второе получит NOT_UNASSIGNED.
--- Ответ: OK | NOT_FOUND | NOT_UNASSIGNED | LIMIT_EXCEEDED.
+-- CardRepository.assign. Блокирует карточки и заново проверяет «всё ещё свободны».
+-- Два одновременных назначения одной карточки выстраиваются в очередь: второе
+-- получит NOT_UNASSIGNED. Ответ: OK | NOT_FOUND | NOT_UNASSIGNED.
 create function public.assign_cards(
   p_card_ids uuid[],
   p_organization_id uuid,
   p_location_id uuid,
   p_target_id uuid,
-  p_activated_at timestamptz,
-  p_card_limit integer
+  p_activated_at timestamptz
 )
 returns text
 language plpgsql security invoker set search_path = '' as $$
@@ -976,11 +893,7 @@ declare
   v_wanted integer := (select count(distinct id) from unnest(p_card_ids) as id);
   v_found integer;
   v_free integer;
-  v_held integer;
 begin
-  -- Одна подписка на клиента: её блокировка сериализует назначения этому клиенту,
-  -- иначе два параллельных назначения разных карточек вместе превысили бы лимит.
-  perform 1 from public.subscriptions where organization_id = p_organization_id for update;
   perform 1 from public.cards where id = any (p_card_ids) order by id for update;
 
   select count(*), count(*) filter (where status = 'UNASSIGNED')
@@ -988,12 +901,6 @@ begin
     from public.cards where id = any (p_card_ids);
   if v_found <> v_wanted then return 'NOT_FOUND'; end if;
   if v_free <> v_found then return 'NOT_UNASSIGNED'; end if;
-
-  if p_card_limit is not null then
-    select count(*) into v_held
-      from public.cards where organization_id = p_organization_id and status <> 'REVOKED';
-    if v_held + v_found > p_card_limit then return 'LIMIT_EXCEEDED'; end if;
-  end if;
 
   update public.cards
      set organization_id = p_organization_id,
@@ -1035,14 +942,44 @@ begin
 end;
 $$;
 
--- OrganizationRepository.createClient (мастер «Новый клиент»): организация,
--- филиалы (с подтверждённой целью «отзывы 2ГИС», если есть ссылка) и подписка
--- одной транзакцией. p_locations: [{ "name", "address", "twogisFirmId",
+-- CardBatchRepository.delete. Удаляет партию вместе с карточками, но только пока ни одна
+-- из них не выдавалась клиентам и у них нет истории касаний (иначе: IN_USE).
+-- Карточки удалять через RLS нельзя (там «удаления нет: REVOKED»), поэтому функция
+-- security definer и сама проверяет, что вызывает администратор. Ответ: OK | NOT_FOUND | IN_USE.
+create function public.delete_batch(p_batch_id uuid)
+returns text
+language plpgsql security definer set search_path = '' as $$
+begin
+  if (select auth.uid()) is not null and not private.is_platform_admin() then
+    raise exception 'delete_batch: only administrators' using errcode = '42501';
+  end if;
+
+  perform 1 from public.card_batches where id = p_batch_id for update;
+  if not found then return 'NOT_FOUND'; end if;
+
+  if exists (
+    select 1 from public.cards c
+    where c.batch_id = p_batch_id
+      and (c.status <> 'UNASSIGNED'
+           or exists (select 1 from public.tap_events e where e.card_id = c.id)
+           or exists (select 1 from public.daily_card_stats s where s.card_id = c.id))
+  ) then
+    return 'IN_USE';
+  end if;
+
+  delete from public.cards where batch_id = p_batch_id;
+  delete from public.card_batches where id = p_batch_id;
+  return 'OK';
+end;
+$$;
+
+-- OrganizationRepository.createClient (мастер «Новый клиент»): организация и
+-- филиалы (с подтверждённой целью «отзывы 2ГИС», если есть ссылка) одной
+-- транзакцией. p_locations: [{ "name", "address", "twogisFirmId",
 -- "twogisProfileUrl", "reviewsTargetUrl" }, …] — уже проверено Zod на сервере.
 create function public.create_client(
   p_organization jsonb,
-  p_locations jsonb,
-  p_subscription jsonb
+  p_locations jsonb
 )
 returns uuid
 language plpgsql security invoker set search_path = '' as $$
@@ -1051,11 +988,9 @@ declare
   v_location_id uuid;
   v_location jsonb;
 begin
-  insert into public.organizations (name, legal_name, bin, contact_name, contact_phone, contact_email, timezone)
+  insert into public.organizations (name, contact_name, contact_phone, contact_email, timezone)
     values (
       p_organization ->> 'name',
-      p_organization ->> 'legalName',
-      p_organization ->> 'bin',
       p_organization ->> 'contactName',
       p_organization ->> 'contactPhone',
       p_organization ->> 'contactEmail',
@@ -1078,23 +1013,14 @@ begin
         values (v_org_id, v_location_id, 'TWOGIS_REVIEW', v_location ->> 'reviewsTargetUrl', true);
     end if;
   end loop;
-
-  insert into public.subscriptions (organization_id, plan, card_limit, paid_until, status)
-    values (
-      v_org_id,
-      (p_subscription ->> 'plan')::public.plan,
-      (p_subscription ->> 'cardLimit')::integer,
-      (p_subscription ->> 'paidUntil')::date,
-      (p_subscription ->> 'status')::public.subscription_status
-    );
   return v_org_id;
 end;
 $$;
 
 revoke execute on function public.daily_stat_totals, public.assign_cards, public.create_batch_with_cards,
-  public.create_client from public, anon;
+  public.delete_batch, public.create_client from public, anon;
 grant execute on function public.daily_stat_totals, public.assign_cards, public.create_batch_with_cards,
-  public.create_client to authenticated, service_role;
+  public.delete_batch, public.create_client to authenticated, service_role;
 
 
 -- -----------------------------------------------------------------------------
@@ -1215,15 +1141,6 @@ language sql stable security invoker set search_path = '' as $$
   group by e.card_id
 $$;
 
--- Выручка за период (в тенге).
-create function public.payments_sum(p_from timestamptz, p_to timestamptz)
-returns bigint
-language sql stable security invoker set search_path = '' as $$
-  select coalesce(sum(p.amount_kzt), 0)::bigint
-  from public.payments p
-  where p.paid_at >= p_from and p.paid_at < p_to
-$$;
-
 -- Прогресс партий: сколько карточек выдано клиентам, записано на NFC и заблокировано.
 create function public.batch_progress()
 returns table (batch_id uuid, assigned bigint, written bigint, locked bigint)
@@ -1321,10 +1238,10 @@ language sql stable security invoker set search_path = '' as $$
 $$;
 
 revoke execute on function public.tap_count, public.tap_heatmap, public.tap_breakdown,
-  public.last_tap_by_card, public.payments_sum, public.batch_progress, public.card_counts,
+  public.last_tap_by_card, public.batch_progress, public.card_counts,
   public.idle_cards, public.latest_rating_snapshots from public, anon;
 grant execute on function public.tap_count, public.tap_heatmap, public.tap_breakdown,
-  public.last_tap_by_card, public.payments_sum, public.batch_progress, public.card_counts,
+  public.last_tap_by_card, public.batch_progress, public.card_counts,
   public.idle_cards, public.latest_rating_snapshots to authenticated, service_role;
 
 

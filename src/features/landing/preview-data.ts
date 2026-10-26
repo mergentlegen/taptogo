@@ -3,7 +3,7 @@ import { addDays, type IsoDate } from "@/lib/dates";
 /**
  * Static numbers for the dashboard mock-up on the landing page. Deterministic
  * (no randomness), so server and client render the same chart; only the dates
- * follow `today`.
+ * follow `today`. Only figures the product really measures are shown: taps.
  */
 export function landingPreviewData(today: IsoDate) {
   const daily = Array.from({ length: 30 }, (_, index) => {
@@ -15,13 +15,10 @@ export function landingPreviewData(today: IsoDate) {
     return { date, taps };
   });
   const taps = daily.reduce((sum, d) => sum + d.taps, 0);
-  const reviews = 64;
   return {
     daily,
     taps: { current: taps, previous: Math.round(taps / 1.32) },
-    rating: { current: 4.7, delta: 0.2 },
-    reviews: { current: reviews, previous: 44 },
-    conversion: { current: reviews / taps, previous: 44 / Math.round(taps / 1.32) },
+    perDay: Math.round(taps / daily.length),
     /** Taps of the top employees; names and roles come from the dictionary in the same order. */
     topEmployees: [212, 176, 149, 121, 96],
   };

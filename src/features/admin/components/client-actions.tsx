@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Archive, Eye, Pause, Pencil, Play, Plus, UserPlus } from "lucide-react";
+import { Archive, Eye, Link2, Pause, Pencil, Play, Plus, UserPlus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import type { z } from "zod";
 
 import { ConfirmDialog } from "@/components/data/confirm-dialog";
+import { CopyField } from "@/components/forms/copy-field";
 import { FormAlert } from "@/components/forms/form-alert";
 import { FormField } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
@@ -25,15 +26,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { Organization, OrganizationStatus } from "@/features/organizations/schemas";
 import { orgRoles } from "@/features/team/schemas";
 import { applyActionError } from "@/lib/forms";
+import type { CreatedAccount } from "@/server/services/admin/client-service";
 
 import {
   addLocationAction,
+  createAccountAction,
   inviteToClientAction,
   setClientStatusAction,
   startImpersonationAction,
   updateClientAction,
 } from "../actions";
-import { addLocationSchema, inviteToClientSchema, updateClientSchema } from "../client-schemas";
+import {
+  addLocationSchema,
+  createAccountSchema,
+  inviteToClientSchema,
+  updateClientSchema,
+} from "../client-schemas";
+import { AccountCredentials } from "./account-credentials";
 
 type Result = { ok: boolean; error?: { message: string } };
 
@@ -121,14 +130,12 @@ function EditClientDialog({ organization }: { organization: Organization }) {
     defaultValues: {
       organizationId: organization.id,
       name: organization.name,
-      legalName: organization.legalName ?? "",
-      bin: organization.bin ?? "",
-      contactName: organization.contactName,
-      contactPhone: organization.contactPhone,
-      contactEmail: organization.contactEmail,
+      contactName: organization.contactName ?? "",
+      contactPhone: organization.contactPhone ?? "",
+      contactEmail: organization.contactEmail ?? "",
     },
   });
-  const fields = ["name", "legalName", "bin", "contactName", "contactPhone", "contactEmail"] as const;
+  const fields = ["name", "contactName", "contactPhone", "contactEmail"] as const;
 
   const onSubmit = form.handleSubmit(() =>
     startTransition(async () => {
@@ -230,12 +237,98 @@ export function AddLocationDialog({ organizationId }: { organizationId: string }
   );
 }
 
-/** Invite (or re-invite) a person into the client's cabinet — e.g. when the wizard's email bounced. */
+/** Creates a login for a person of the client; the temporary password is shown once, to be sent by hand. */
+export function CreateAccountDialog({ organizationId }: { organizationId: string }) {
+  const t = useTranslations();
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [formError, setFormError] = useState<string | null>(null);
+  const [account, setAccount] = useState<CreatedAccount | null>(null);
+  type Values = z.input<typeof createAccountSchema>;
+  const form = useForm<Values, unknown, z.output<typeof createAccountSchema>>({
+    resolver: zodResolver(createAccountSchema),
+    defaultValues: { organizationId, email: "", name: "", role: "MANAGER" },
+  });
+  const role = useWatch({ control: form.control, name: "role" });
+
+  const onSubmit = form.handleSubmit(() =>
+    startTransition(async () => {
+      setFormError(null);
+      const result = await createAccountAction(form.getValues());
+      if (result.ok) {
+        setAccount(result.data);
+        form.reset({ organizationId, email: "", name: "", role: "MANAGER" });
+      } else setFormError(applyActionError(result.error, form.setError, ["email", "name"]));
+    }),
+  );
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setAccount(null);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <UserPlus data-icon="inline-start" />
+          {t("adm.accounts.create")}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("adm.accounts.title")}</DialogTitle>
+        </DialogHeader>
+        {account ? (
+          <div className="grid gap-4">
+            <AccountCredentials account={account} />
+            <DialogFooter>
+              <Button onClick={() => setOpen(false)}>{t("adm.accounts.done")}</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} noValidate className="grid gap-3">
+            {formError && <FormAlert>{formError}</FormAlert>}
+            <FormField label={t("adm.accounts.name")} error={form.formState.errors.name?.message}>
+              <Input {...form.register("name")} />
+            </FormField>
+            <FormField label={t("team.email")} error={form.formState.errors.email?.message}>
+              <Input type="email" {...form.register("email")} />
+            </FormField>
+            <FormField label={t("team.role")}>
+              <Select value={role} onValueChange={(value) => form.setValue("role", value as Values["role"])}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {orgRoles.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {t(`roles.${r}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <DialogFooter>
+              <Button type="submit" disabled={pending}>
+                {t("adm.accounts.submit")}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** An invitation link for someone who should join the client's cabinet by themselves. */
 export function InviteToClientDialog({ organizationId }: { organizationId: string }) {
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
   type Values = z.input<typeof inviteToClientSchema>;
   const form = useForm<Values, unknown, z.output<typeof inviteToClientSchema>>({
     resolver: zodResolver(inviteToClientSchema),
@@ -248,18 +341,23 @@ export function InviteToClientDialog({ organizationId }: { organizationId: strin
       setFormError(null);
       const result = await inviteToClientAction(form.getValues());
       if (result.ok) {
-        toast.success(t("team.invited"));
-        form.reset();
-        setOpen(false);
+        setLink(result.data.link);
+        form.reset({ organizationId, email: "", role: "MANAGER" });
       } else setFormError(applyActionError(result.error, form.setError, ["email"]));
     }),
   );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setLink(null);
+      }}
+    >
       <DialogTrigger asChild>
-        <Button size="sm">
-          <UserPlus data-icon="inline-start" />
+        <Button size="sm" variant="outline">
+          <Link2 data-icon="inline-start" />
           {t("team.invite")}
         </Button>
       </DialogTrigger>
@@ -267,31 +365,41 @@ export function InviteToClientDialog({ organizationId }: { organizationId: strin
         <DialogHeader>
           <DialogTitle>{t("team.inviteTitle")}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={onSubmit} noValidate className="grid gap-3">
-          {formError && <FormAlert>{formError}</FormAlert>}
-          <FormField label={t("team.email")} error={form.formState.errors.email?.message}>
-            <Input type="email" {...form.register("email")} />
-          </FormField>
-          <FormField label={t("team.role")}>
-            <Select value={role} onValueChange={(value) => form.setValue("role", value as Values["role"])}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {orgRoles.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {t(`roles.${r}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
-          <DialogFooter>
-            <Button type="submit" disabled={pending}>
-              {t("team.send")}
-            </Button>
-          </DialogFooter>
-        </form>
+        {link ? (
+          <div className="grid gap-4">
+            <p className="text-sm text-muted-foreground">{t("team.linkHint")}</p>
+            <CopyField label={t("team.linkLabel")} value={link} testId="invitation-link" />
+            <DialogFooter>
+              <Button onClick={() => setOpen(false)}>{t("adm.accounts.done")}</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} noValidate className="grid gap-3">
+            {formError && <FormAlert>{formError}</FormAlert>}
+            <FormField label={t("team.email")} error={form.formState.errors.email?.message}>
+              <Input type="email" {...form.register("email")} />
+            </FormField>
+            <FormField label={t("team.role")}>
+              <Select value={role} onValueChange={(value) => form.setValue("role", value as Values["role"])}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {orgRoles.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {t(`roles.${r}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <DialogFooter>
+              <Button type="submit" disabled={pending}>
+                {t("team.createLink")}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

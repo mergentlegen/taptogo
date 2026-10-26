@@ -63,21 +63,14 @@ export class AccountService {
 
   async updateOrganization(
     ctx: OrgContext,
-    input: Pick<Organization, "name" | "legalName" | "bin" | "contactName" | "contactPhone" | "contactEmail">,
+    input: Pick<Organization, "name" | "contactName" | "contactPhone" | "contactEmail">,
   ): Promise<Organization> {
     assertOrgPermission(ctx, "org.settings.manage");
     const repos = forOrganization(this.repositories, ctx.organizationId);
     const before = await repos.organization.get();
     if (!before) throw serviceError("NOT_FOUND", "memberNotFound");
     const after = await repos.organization.update(input);
-    const diff = auditDiff(before, after, [
-      "name",
-      "legalName",
-      "bin",
-      "contactName",
-      "contactPhone",
-      "contactEmail",
-    ]);
+    const diff = auditDiff(before, after, ["name", "contactName", "contactPhone", "contactEmail"]);
     if (diff) {
       await this.audit.record({
         actorUserId: ctx.userId,

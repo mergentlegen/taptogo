@@ -97,8 +97,6 @@ describe.skipIf(!configured)("SupabaseAuthService (real project)", () => {
     const { organization } = await repositories.organizations.createClient({
       organization: {
         name,
-        legalName: null,
-        bin: null,
         contactName: "Тест",
         contactPhone: "+77001112233",
         contactEmail: `o-${run}@example.kz`,
@@ -106,7 +104,6 @@ describe.skipIf(!configured)("SupabaseAuthService (real project)", () => {
         status: "ACTIVE",
       },
       locations: [],
-      subscription: { plan: "START", cardLimit: 3, paidUntil: "2030-01-01", status: "ACTIVE" },
     });
     orgIds.push(organization.id);
     return organization;

@@ -52,6 +52,9 @@ export type AcceptInvitationResult =
   | { ok: true; organizationId: string; session: IssuedSession | null }
   | { ok: false; reason: "INVALID_TOKEN" | "EXPIRED" | "ALREADY_ACCEPTED" | "PASSWORD_REQUIRED" };
 
+export type CreateAccountResult =
+  { ok: true; user: User; temporaryPassword: string } | { ok: false; reason: "EXISTS" };
+
 /**
  * Authentication contract. MockAuthService implements it now; a Supabase Auth
  * implementation replaces it later without touching pages or actions.
@@ -79,6 +82,12 @@ export interface AuthService {
   /** One-time token from the email; on success every session of the user is revoked. */
   resetPassword(token: string, newPassword: string): Promise<{ ok: boolean }>;
   getInvitation(token: string): Promise<InvitationPreview | null>;
+  /**
+   * Creates an account for a person who cannot sign up by themselves (our client): the
+   * profile and a temporary password that must be replaced at the first sign-in.
+   * The caller hands the password over once; it is stored only as a hash.
+   */
+  createAccount(input: { email: string; name: string }): Promise<CreateAccountResult>;
   /**
    * Generates a temporary password, sets it and ends every session of the user.
    * The user must change it at the next sign-in. Returns null when there is no such user.

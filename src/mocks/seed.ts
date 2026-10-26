@@ -6,11 +6,9 @@ import type { CardBatch } from "@/features/batches/schemas";
 import { generateCardCode } from "@/features/cards/code";
 import type { Card, CardStatus, CardType } from "@/features/cards/schemas";
 import type { Employee } from "@/features/employees/schemas";
-import type { Lead } from "@/features/leads/schemas";
 import type { Location, RatingSnapshot } from "@/features/locations/schemas";
 import type { Organization } from "@/features/organizations/schemas";
 import { defaultPlatformSettings } from "@/features/platform/schemas";
-import type { Payment, Subscription } from "@/features/subscriptions/schemas";
 import type { InternalComment, SupportTicket } from "@/features/support/schemas";
 import type { RedirectTarget } from "@/features/targets/schemas";
 import type { Membership, OrgRole } from "@/features/team/schemas";
@@ -389,24 +387,18 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
   const orgs: Record<OrgKey, Organization> = {
     coffee: makeOrg({
       name: "Coffee Point",
-      legalName: "ТОО «Coffee Point»",
-      bin: "180340012345",
       contactName: "Аружан Сейткали",
       contactPhone: "+77011234567",
       contactEmail: "hello@coffeepoint.kz",
     }),
     beauty: makeOrg({
       name: "Aru Beauty",
-      legalName: "ИП Ахметова А.",
-      bin: "900215400123",
       contactName: "Алия Ахметова",
       contactPhone: "+77027654321",
       contactEmail: "aru.beauty@mail.kz",
     }),
     carwash: makeOrg({
       name: "AquaDrive",
-      legalName: "ТОО «AquaDrive Group»",
-      bin: "150640098765",
       contactName: "Ержан Беков",
       contactPhone: "+77755550011",
       contactEmail: "office@aquadrive.kz",
@@ -752,51 +744,6 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
     }
   }
 
-  // ── Billing ─────────────────────────────────────────────────────────────
-  const subscriptions: Subscription[] = [
-    {
-      organizationId: orgs.coffee.id,
-      plan: "BUSINESS",
-      cardLimit: 30,
-      paidUntil: addDays(today, 40),
-      status: "ACTIVE",
-    },
-    // Expired: the cabinet shows blurred statistics, redirects keep working.
-    {
-      organizationId: orgs.beauty.id,
-      plan: "START",
-      cardLimit: 10,
-      paidUntil: addDays(today, -20),
-      status: "EXPIRED",
-    },
-    // In grace period.
-    {
-      organizationId: orgs.carwash.id,
-      plan: "NETWORK",
-      cardLimit: 100,
-      paidUntil: addDays(today, -3),
-      status: "ACTIVE",
-    },
-  ];
-
-  const payment = (org: OrgKey, offset: number, amountKzt: number, method: Payment["method"]): Payment => ({
-    id: rng.uuid(),
-    organizationId: orgs[org].id,
-    amountKzt,
-    paidAt: at(offset, 11),
-    method,
-    comment: null,
-    recordedById: admin.id,
-  });
-  const payments: Payment[] = [
-    payment("coffee", -80, 19_900, "KASPI"),
-    payment("coffee", -50, 19_900, "KASPI"),
-    payment("coffee", -10, 19_900, "KASPI"),
-    payment("beauty", -50, 9_900, "CASH"),
-    payment("carwash", -64, 49_900, "BANK_TRANSFER"),
-    { ...payment("carwash", -33, 49_900, "BANK_TRANSFER"), comment: "Счёт №118" },
-  ].sort((a, b) => b.paidAt.localeCompare(a.paidAt));
-
   // ── Inbox ───────────────────────────────────────────────────────────────
   const tickets: SupportTicket[] = [
     {
@@ -814,8 +761,8 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
       id: rng.uuid(),
       organizationId: orgs.beauty.id,
       authorId: beautyOwner.id,
-      subject: "Как продлить подписку?",
-      body: "Статистика перестала открываться. Хотим продлить тариф, можно оплатить через Kaspi?",
+      subject: "Как заменить ссылку на карточке?",
+      body: "Нужно, чтобы карточки вели на новую страницу в 2ГИС. Подскажите, что для этого нужно сделать?",
       status: "NEW",
       assigneeId: null,
       createdAt: at(-1, 12),
@@ -844,42 +791,6 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
     },
   ];
 
-  const leads: Lead[] = [
-    {
-      id: rng.uuid(),
-      name: "Ерке Нурланова",
-      phone: "+77071112233",
-      businessName: "Кафе «Жеты Казына»",
-      city: "Алматы",
-      message: "Нужно около 10 карточек на столы.",
-      status: "NEW",
-      assigneeId: null,
-      createdAt: at(0, 8),
-    },
-    {
-      id: rng.uuid(),
-      name: "Ринат Галиев",
-      phone: "+77474445566",
-      businessName: "Барбершоп «Brutal»",
-      city: "Астана",
-      message: null,
-      status: "IN_PROGRESS",
-      assigneeId: admin.id,
-      createdAt: at(-4, 17),
-    },
-    {
-      id: rng.uuid(),
-      name: "Сауле Омарова",
-      phone: "+77012223344",
-      businessName: "Стоматология «Smile»",
-      city: "Шымкент",
-      message: "Интересует тариф для сети из трёх клиник.",
-      status: "CONVERTED",
-      assigneeId: admin.id,
-      createdAt: at(-15, 11),
-    },
-  ];
-
   // ── Audit trail and settings ────────────────────────────────────────────
   const firstCoffeeCard = cards.find((c) => c.organizationId === orgs.coffee.id);
   const auditEntries: AuditLog[] = [
@@ -905,28 +816,6 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
       after: { status: "ACTIVE", organizationId: orgs.coffee.id },
       createdAt: at(-60, 9),
     },
-    {
-      id: rng.uuid(),
-      actorUserId: admin.id,
-      action: "payment.create",
-      entityType: "payment",
-      entityId: payments.find((p) => p.organizationId === orgs.coffee.id)?.id ?? null,
-      organizationId: orgs.coffee.id,
-      before: null,
-      after: { amountKzt: 19_900, method: "KASPI" },
-      createdAt: at(-10, 11),
-    },
-    {
-      id: rng.uuid(),
-      actorUserId: null,
-      action: "subscription.status_change",
-      entityType: "subscription",
-      entityId: orgs.beauty.id,
-      organizationId: orgs.beauty.id,
-      before: { status: "GRACE" },
-      after: { status: "EXPIRED" },
-      createdAt: at(-12, 0, 5),
-    },
   ];
   const auditLogs = auditEntries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -943,10 +832,7 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
     cards,
     tapEvents: pastTapEvents,
     dailyStats,
-    subscriptions,
-    payments,
     tickets,
-    leads,
     comments,
     auditLogs,
     platformSettings: structuredClone(defaultPlatformSettings),

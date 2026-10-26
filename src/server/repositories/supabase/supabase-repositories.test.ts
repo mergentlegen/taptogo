@@ -71,8 +71,6 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
   const clientInput = (name: string) => ({
     organization: {
       name,
-      legalName: null,
-      bin: null,
       contactName: "Тест Тестов",
       contactPhone: "+77001112233",
       contactEmail: `t-${run}@example.kz`,
@@ -91,12 +89,6 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
         reviewsTargetUrl: "https://2gis.kz/almaty/firm/70000001000000001/tab/reviews",
       },
     ],
-    subscription: {
-      plan: "START" as const,
-      cardLimit: 3,
-      paidUntil: "2030-01-01",
-      status: "ACTIVE" as const,
-    },
   });
 
   beforeAll(async () => {
@@ -166,7 +158,6 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
         "tap_events",
         "daily_card_stats",
         "support_tickets",
-        "payments",
         "cards",
         "employees",
         "redirect_targets",
@@ -184,7 +175,6 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
       await system.from("organizations").delete().in("id", orgIds);
     }
     await system.from("internal_comments").delete().in("author_id", authIds);
-    await system.from("leads").delete().like("business_name", `%${run}%`);
     for (const id of authIds) await system.auth.admin.deleteUser(id);
     // audit_logs rows written by the "audit log" test stay (append-only table, by design).
   }, 60_000);
@@ -258,26 +248,20 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
   });
 
   describe("organizations, locations, employees, targets", () => {
-    it("creates a client with locations, a verified target and a subscription in one call", async () => {
+    it("creates a client with locations and a verified target in one call", async () => {
       expect(orgA.name).toBe(`Тест A ${run}`);
       expect((await sys.locations.list({ organizationId: orgA.id })).length).toBe(1);
       const targets = await sys.targets.list({ organizationId: orgA.id });
       expect(targets).toHaveLength(1);
       expect(targets[0]).toMatchObject({ type: "TWOGIS_REVIEW", isVerified: true, locationId: locationA });
-      expect(await sys.subscriptions.findByOrganization(orgA.id)).toMatchObject({
-        plan: "START",
-        cardLimit: 3,
-      });
     });
 
-    it("finds organizations by name or БИН and updates them", async () => {
+    it("finds organizations by name and updates them", async () => {
       expect((await sys.organizations.list({ search: `Тест A ${run}` })).map((o) => o.id)).toEqual([orgA.id]);
       expect((await sys.organizations.list({ search: "100%_нет" })).length).toBe(0);
-      const updated = await sys.organizations.update(orgA.id, { bin: "123456789012" });
-      expect(updated.bin).toBe("123456789012");
-      expect((await sys.organizations.list({ search: "123456789012" })).some((o) => o.id === orgA.id)).toBe(
-        true,
-      );
+      const updated = await sys.organizations.update(orgA.id, { contactName: "Новый контакт" });
+      expect(updated.contactName).toBe("Новый контакт");
+      expect((await sys.organizations.update(orgA.id, { contactName: null })).contactName).toBeNull();
       expect((await sys.organizations.listByIds([orgA.id, orgB.id])).length).toBe(2);
     });
 
@@ -351,7 +335,7 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
       expect(page.total).toBe(5);
     });
 
-    it("assigns atomically and respects the limit", async () => {
+    it("assigns atomically: a card is handed out only once", async () => {
       const target = (await sys.targets.list({ organizationId: orgA.id }))[0]!;
       const base = {
         organizationId: orgA.id,
@@ -361,21 +345,15 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
       };
       const ids = cards.map((c) => c.id);
 
-      expect(
-        await sys.cards.assign({ ...base, cardIds: [ids[0]!, crypto.randomUUID()], cardLimit: 3 }),
-      ).toEqual({
+      expect(await sys.cards.assign({ ...base, cardIds: [ids[0]!, crypto.randomUUID()] })).toEqual({
         ok: false,
         reason: "NOT_FOUND",
       });
-      expect(await sys.cards.assign({ ...base, cardIds: ids.slice(0, 4), cardLimit: 3 })).toEqual({
-        ok: false,
-        reason: "LIMIT_EXCEEDED",
-      });
       expect(await sys.cards.count({ batchId, statuses: ["ACTIVE"] })).toBe(0);
 
-      const done = await sys.cards.assign({ ...base, cardIds: ids.slice(0, 3), cardLimit: 3 });
+      const done = await sys.cards.assign({ ...base, cardIds: ids.slice(0, 3) });
       expect(done.ok && done.cards.map((c) => c.status)).toEqual(["ACTIVE", "ACTIVE", "ACTIVE"]);
-      expect(await sys.cards.assign({ ...base, cardIds: [ids[0]!], cardLimit: 3 })).toEqual({
+      expect(await sys.cards.assign({ ...base, cardIds: [ids[0]!] })).toEqual({
         ok: false,
         reason: "NOT_UNASSIGNED",
       });
@@ -383,6 +361,35 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
       expect(await sys.cards.countBy("organizationId", { batchId })).toEqual({ [orgA.id]: 3 });
       expect(await sys.cards.countBy("batchId", { organizationId: orgA.id })).toEqual({ [batchId]: 3 });
       expect((await sys.batches.progress())[batchId]).toEqual({ assigned: 3, written: 0, locked: 0 });
+    });
+
+    it("renames a batch and deletes it only while nothing was handed out", async () => {
+      const spare = await sys.batches.createWithCards(
+        { name: `Лишняя ${run}`, quantity: 2, cardType: "STICKER", notes: null },
+        [generateCardCode(), generateCardCode()].map((code) => ({
+          code,
+          organizationId: null,
+          locationId: null,
+          employeeId: null,
+          targetId: null,
+          label: "x",
+          type: "STICKER" as const,
+          status: "UNASSIGNED" as const,
+          nfcWritten: false,
+          nfcLocked: false,
+          activatedAt: null,
+        })),
+      );
+      const renamed = await sys.batches.update(spare.batch.id, { name: `Новое ${run}`, notes: "заметка" });
+      expect(renamed).toMatchObject({ name: `Новое ${run}`, notes: "заметка", quantity: 2 });
+      await expectCode(sys.batches.update(crypto.randomUUID(), { name: "x" }), "NOT_FOUND");
+
+      expect(await sys.batches.delete(batchId)).toBe("IN_USE");
+      expect(await sys.cards.count({ batchId })).toBe(5);
+      expect(await sys.batches.delete(spare.batch.id)).toBe("OK");
+      expect(await sys.batches.findById(spare.batch.id)).toBeNull();
+      expect(await sys.cards.count({ batchId: spare.batch.id })).toBe(0);
+      expect(await sys.batches.delete(spare.batch.id)).toBe("NOT_FOUND");
     });
 
     it("updates cards one by one and in bulk, and finds idle ones", async () => {
@@ -506,42 +513,8 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
     });
   });
 
-  describe("billing, support and audit", () => {
-    it("records payments and sums them", async () => {
-      const before = await sys.payments.sum({ range });
-      await sys.payments.create({
-        organizationId: orgA.id,
-        amountKzt: 19_900,
-        paidAt: NOW.toISOString(),
-        method: "KASPI",
-        comment: null,
-        recordedById: adminId,
-      });
-      await sys.payments.create({
-        organizationId: orgB.id,
-        amountKzt: 9_900,
-        paidAt: new Date(NOW.getTime() - 60_000).toISOString(),
-        method: "CASH",
-        comment: "нал",
-        recordedById: null,
-      });
-      expect(await sys.payments.sum({ range })).toBe(before + 29_800);
-      const list = await sys.payments.list({ organizationId: orgA.id, range, limit: 10 });
-      expect(list).toHaveLength(1);
-      expect(list[0]).toMatchObject({ amountKzt: 19_900, method: "KASPI", recordedById: adminId });
-
-      const subscription = await sys.subscriptions.upsert({
-        organizationId: orgA.id,
-        plan: "BUSINESS",
-        cardLimit: 30,
-        paidUntil: "2031-01-01",
-        status: "ACTIVE",
-      });
-      expect(subscription.plan).toBe("BUSINESS");
-      expect((await sys.subscriptions.list()).filter((s) => s.organizationId === orgA.id)).toHaveLength(1);
-    });
-
-    it("handles tickets, leads and staff comments", async () => {
+  describe("support and audit", () => {
+    it("handles tickets and staff comments", async () => {
       const ticket = await sys.tickets.create({
         organizationId: orgA.id,
         authorId: ownerId,
@@ -560,26 +533,11 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
       ).toBe(1);
       await expectCode(sys.tickets.update(crypto.randomUUID(), { status: "CLOSED" }), "NOT_FOUND");
 
-      const lead = await sys.leads.create({
-        name: "Лид",
-        phone: "+77001234567",
-        businessName: `Кофейня ${run}`,
-        city: null,
-        message: null,
-        status: "NEW",
-        assigneeId: null,
-      });
-      expect((await sys.leads.update(lead.id, { status: "CONVERTED" })).status).toBe("CONVERTED");
-      expect(
-        (await sys.leads.list({ statuses: ["CONVERTED"], limit: 50 })).some((l) => l.id === lead.id),
-      ).toBe(true);
-
       for (const body of ["первый", "второй"]) {
         await sys.comments.create({ subjectType: "TICKET", subjectId: ticket.id, authorId: adminId, body });
       }
       expect((await sys.comments.list("TICKET", ticket.id)).map((c) => c.body)).toEqual(["первый", "второй"]);
       expect((await sys.comments.listFor("TICKET", [ticket.id, crypto.randomUUID()])).length).toBe(2);
-      expect((await sys.comments.listFor("LEAD", [ticket.id])).length).toBe(0);
     });
 
     // `audit_logs` is append-only, so this test leaves 5 rows behind on every run: opt in with SUPABASE_TEST_AUDIT=1.
@@ -623,8 +581,10 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
 
     it("reads and rewrites the platform settings", async () => {
       const settings = await sys.platformSettings.get();
-      expect(settings.plans).toHaveLength(3);
-      expect(await sys.platformSettings.update({ graceDays: settings.graceDays })).toEqual(settings);
+      expect(settings.allowedRedirectDomains).toContain("2gis.kz");
+      expect(
+        await sys.platformSettings.update({ allowedRedirectDomains: settings.allowedRedirectDomains }),
+      ).toEqual(settings);
     });
   });
 
@@ -649,7 +609,8 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
       await expectCode(owner.users.update(ownerId, { platformRole: "ADMIN" }), "FORBIDDEN");
     });
 
-    it("cannot create batches, settings or payments", async () => {
+    it("cannot create batches, delete them or change settings", async () => {
+      await expect(owner.batches.delete(batchId)).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expectCode(
         owner.batches.createWithCards({ name: "Взлом", quantity: 1, cardType: "NFC_CARD", notes: null }, [
           {
@@ -669,17 +630,9 @@ describe.skipIf(!configured)("Supabase repositories (real project)", () => {
         "FORBIDDEN",
       );
       await expectCode(
-        owner.payments.create({
-          organizationId: orgA.id,
-          amountKzt: 1,
-          paidAt: NOW.toISOString(),
-          method: "CASH",
-          comment: null,
-          recordedById: null,
-        }),
+        owner.platformSettings.update({ allowedRedirectDomains: ["evil.example"] }),
         "FORBIDDEN",
       );
-      await expectCode(owner.platformSettings.update({ graceDays: 30 }), "FORBIDDEN");
     });
   });
 });

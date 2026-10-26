@@ -1,7 +1,6 @@
 import { useTranslations } from "next-intl";
 
 import type { OrganizationStatus } from "@/features/organizations/schemas";
-import type { SubscriptionStatus } from "@/features/subscriptions/schemas";
 import { cn } from "@/lib/utils";
 
 const tone = {
@@ -23,18 +22,6 @@ function Pill({ children, variant }: { children: React.ReactNode; variant: keyof
       {children}
     </span>
   );
-}
-
-const subscriptionTone: Record<SubscriptionStatus, keyof typeof tone> = {
-  TRIAL: "muted",
-  ACTIVE: "good",
-  GRACE: "warn",
-  EXPIRED: "bad",
-};
-
-export function SubscriptionBadge({ status }: { status: SubscriptionStatus }) {
-  const t = useTranslations("subscription.statuses");
-  return <Pill variant={subscriptionTone[status]}>{t(status)}</Pill>;
 }
 
 const orgTone: Record<OrganizationStatus, keyof typeof tone> = {

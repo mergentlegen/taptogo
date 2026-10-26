@@ -97,7 +97,6 @@ insert into public.daily_card_stats (card_id, date, organization_id, location_id
 insert into public.tap_events (id, card_id, organization_id, occurred_at, source, device_type, os) values
   ('${uuid(601)}', '${CARD_A}', '${ORG_A}', now(), 'NFC', 'MOBILE', 'IOS'),
   ('${uuid(602)}', '${CARD_B}', '${ORG_B}', now(), 'QR', 'MOBILE', 'ANDROID');
-insert into public.payments (organization_id, amount_kzt, paid_at, method) values ('${ORG_A}', 9900, now(), 'KASPI');
 `;
 
 let db: PGlite;
@@ -167,7 +166,6 @@ describe("organization isolation", () => {
     expect(await rows("select id from public.cards")).toEqual([{ id: CARD_A }]);
     expect(await rows("select 1 from public.tap_events")).toHaveLength(1);
     expect(await rows("select 1 from public.organizations")).toHaveLength(1);
-    expect(await rows("select 1 from public.payments")).toHaveLength(0);
     expect(await rows("select 1 from public.card_batches")).toHaveLength(0);
     const emails = (await rows<{ email: string }>("select email from public.users order by email")).map(
       (r) => r.email,
@@ -194,7 +192,8 @@ describe("organization isolation", () => {
     expect(await rows("select 1 from public.organizations")).toHaveLength(0);
     expect(await rows("select 1 from public.cards")).toHaveLength(0);
     await rejects(
-      `insert into public.leads (name, phone, business_name) values ('a', '+77010000000', 'b')`,
+      `insert into public.support_tickets (organization_id, author_id, subject, body)
+       values ('${ORG_A}', '${U.ownerA}', 'a', 'b')`,
       /row-level security/,
     );
   });
@@ -209,14 +208,11 @@ describe("organization isolation", () => {
 describe("client roles", () => {
   it("keeps platform data away from clients", async () => {
     await actAs(U.ownerA);
-    expect(await affected("update public.platform_settings set grace_days = 1")).toBe(0);
+    expect(
+      await affected("update public.platform_settings set allowed_redirect_domains = array['evil.example']"),
+    ).toBe(0);
     await rejects(
       `insert into public.card_batches (name, quantity, card_type) values ('x', 1, 'STICKER')`,
-      /row-level security/,
-    );
-    await rejects(
-      `insert into public.payments (organization_id, amount_kzt, paid_at, method, recorded_by_id)
-       values ('${ORG_A}', 1, now(), 'CASH', '${U.ownerA}')`,
       /row-level security/,
     );
   });
@@ -278,7 +274,7 @@ describe("client roles", () => {
 });
 
 describe("the administrator", () => {
-  it("sees everything and manages cards, batches and payments", async () => {
+  it("sees everything and manages cards and batches", async () => {
     await actAs(U.admin);
     expect(await rows("select 1 from public.cards")).toHaveLength(3);
     expect(
@@ -287,12 +283,6 @@ describe("the administrator", () => {
     expect(
       await affected(
         `insert into public.card_batches (name, quantity, card_type) values ('x', 1, 'STICKER')`,
-      ),
-    ).toBe(1);
-    expect(
-      await affected(
-        `insert into public.payments (organization_id, amount_kzt, paid_at, method, recorded_by_id)
-         values ('${ORG_A}', 1, now(), 'CASH', '${U.admin}')`,
       ),
     ).toBe(1);
   });
@@ -305,7 +295,9 @@ describe("the administrator", () => {
          where id = '${CARD_FREE}'`,
       ),
     ).toBe(1);
-    expect(await affected("update public.platform_settings set grace_days = 5")).toBe(1);
+    expect(
+      await affected("update public.platform_settings set allowed_redirect_domains = array['2gis.kz']"),
+    ).toBe(1);
     expect(await affected(`update public.users set status = 'BLOCKED' where id = '${U.partner}'`)).toBe(1);
   });
 
@@ -385,15 +377,15 @@ describe("repository functions", () => {
     );
   });
 
-  it("assigns cards atomically: a card already handed out is refused, the limit holds", async () => {
+  it("assigns cards atomically: a card already handed out is refused", async () => {
     await actAs(U.admin);
-    const assign = (org: string, limit: string) =>
-      rows<{ result: string }>(
-        `select public.assign_cards(array['${CARD_FREE}']::uuid[], '${org}', null, null, now(), ${limit}) as result`,
-      );
-    expect(await assign(ORG_A, "1")).toEqual([{ result: "LIMIT_EXCEEDED" }]);
-    expect(await assign(ORG_A, "null")).toEqual([{ result: "OK" }]);
-    expect(await assign(ORG_B, "null")).toEqual([{ result: "NOT_UNASSIGNED" }]);
+    const assign = (org: string, ids = `array['${CARD_FREE}']::uuid[]`) =>
+      rows<{ result: string }>(`select public.assign_cards(${ids}, '${org}', null, null, now()) as result`);
+    expect(await assign(ORG_A, `array['${CARD_FREE}', '${uuid(999)}']::uuid[]`)).toEqual([
+      { result: "NOT_FOUND" },
+    ]);
+    expect(await assign(ORG_A)).toEqual([{ result: "OK" }]);
+    expect(await assign(ORG_B)).toEqual([{ result: "NOT_UNASSIGNED" }]);
     expect(await rows(`select organization_id from public.cards where id = '${CARD_FREE}'`)).toEqual([
       { organization_id: ORG_A },
     ]);
@@ -403,7 +395,7 @@ describe("repository functions", () => {
     await actAs(U.ownerA);
     expect(
       await rows<{ result: string }>(
-        `select public.assign_cards(array['${CARD_FREE}']::uuid[], '${ORG_A}', null, null, now(), null) as result`,
+        `select public.assign_cards(array['${CARD_FREE}']::uuid[], '${ORG_A}', null, null, now()) as result`,
       ),
     ).toEqual([{ result: "NOT_FOUND" }]); // RLS hides unassigned cards from clients
   });
@@ -425,25 +417,61 @@ describe("repository functions", () => {
     ]);
   });
 
-  it("creates a client with locations, a verified target and a subscription in one go", async () => {
+  it("deletes a batch only while none of its cards was handed out or has a history", async () => {
+    const batch = uuid(402);
+    await db.exec(`
+      insert into public.card_batches (id, name, quantity, card_type) values ('${batch}', 'Лишняя', 2, 'STICKER');
+      insert into public.cards (code, batch_id, number, label, type) values
+        ('Spare001', '${batch}', 1, 'a', 'STICKER'), ('Spare002', '${batch}', 2, 'b', 'STICKER');`);
+    await actAs(U.admin);
+    const remove = (id: string) => rows<{ result: string }>(`select public.delete_batch('${id}') as result`);
+
+    // The main batch holds active cards with taps: untouched.
+    expect(await remove(BATCH)).toEqual([{ result: "IN_USE" }]);
+    expect(await rows(`select 1 from public.cards where batch_id = '${BATCH}'`)).toHaveLength(3);
+    expect(await remove(uuid(999))).toEqual([{ result: "NOT_FOUND" }]);
+
+    // A card released back to the pool but with tap history still blocks deletion.
+    await db.exec("reset role");
+    await db.exec(`insert into public.cards (id, code, batch_id, number, label, type, status)
+      values ('${uuid(504)}', 'Spare003', '${batch}', 3, 'c', 'STICKER', 'UNASSIGNED');
+      insert into public.daily_card_stats (card_id, date, organization_id, taps, unique_visitors, nfc_taps, qr_taps)
+      values ('${uuid(504)}', '2026-10-01', '${ORG_A}', 1, 1, 1, 0);`);
+    await actAs(U.admin);
+    expect(await remove(batch)).toEqual([{ result: "IN_USE" }]);
+    await db.exec("reset role");
+    await db.exec(`delete from public.daily_card_stats where card_id = '${uuid(504)}'`);
+    await actAs(U.admin);
+
+    expect(await remove(batch)).toEqual([{ result: "OK" }]);
+    expect(await rows(`select 1 from public.cards where batch_id = '${batch}'`)).toHaveLength(0);
+    expect(await rows(`select 1 from public.card_batches where id = '${batch}'`)).toHaveLength(0);
+  });
+
+  it("does not let a client or a visitor delete batches", async () => {
+    await actAs(U.ownerA);
+    await rejects(`select public.delete_batch('${BATCH}')`, /only administrators/);
+    await actAs("anon");
+    await rejects(`select public.delete_batch('${BATCH}')`, /permission denied/);
+  });
+
+  it("creates a client with locations and a verified target in one go, with no contact person", async () => {
     await actAs(U.admin);
     const [{ id }] = (await rows<{ id: string }>(`select public.create_client(
-      '{"name": "Новый", "contactName": "Тест", "contactPhone": "+77010000009", "contactEmail": "n@n.kz"}',
+      '{"name": "Новый"}',
       '[{"name": "Точка", "address": "Алматы", "twogisFirmId": "70000001234567", "reviewsTargetUrl": "https://2gis.kz/r"},
-        {"name": "Вторая", "address": "Астана"}]',
-      '{"plan": "START", "cardLimit": 10, "paidUntil": "2026-11-17", "status": "TRIAL"}'
+        {"name": "Вторая", "address": "Астана"}]'
     ) as id`)) as [{ id: string }];
     expect(await rows(`select 1 from public.locations where organization_id = '${id}'`)).toHaveLength(2);
     expect(
       await rows(`select is_verified from public.redirect_targets where organization_id = '${id}'`),
     ).toEqual([{ is_verified: true }]);
 
-    // A bad subscription rolls back the organization too.
+    // A bad location rolls back the organization too.
     const before = await rows("select 1 from public.organizations");
     await rejects(
-      `select public.create_client('{"name": "X", "contactName": "X", "contactPhone": "+77010000008",
-        "contactEmail": "x@x.kz"}', '[]', '{"plan": "NOPE", "cardLimit": 1, "paidUntil": "2026-11-17", "status": "TRIAL"}')`,
-      /invalid input value for enum/,
+      `select public.create_client('{"name": "X"}', '[{"address": "без названия"}]')`,
+      /null value in column "name"/,
     );
     expect(await rows("select 1 from public.organizations")).toHaveLength(before.length);
   });

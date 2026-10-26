@@ -21,7 +21,6 @@ import {
   fromRows,
   ok,
   one,
-  quote,
   readAll,
   rows,
   toRow,
@@ -41,10 +40,7 @@ export function supabaseOrganizationRepository(db: DbGetter): OrganizationReposi
       const data = await readAll((from, to) => {
         let query = c.from("organizations").select("*");
         if (filter.statuses) query = query.in("status", filter.statuses);
-        if (search) {
-          const pattern = quote(`%${escapeLike(search)}%`);
-          query = query.or(`name.ilike.${pattern},legal_name.ilike.${pattern},bin.like.${pattern}`);
-        }
+        if (search) query = query.ilike("name", `%${escapeLike(search)}%`);
         return query.order("created_at").order("id").range(from, to);
       });
       return fromRows(organizationSchema, data).sort(byName);
@@ -62,8 +58,6 @@ export function supabaseOrganizationRepository(db: DbGetter): OrganizationReposi
         await c.rpc("create_client", {
           p_organization: {
             name: input.organization.name,
-            legalName: input.organization.legalName,
-            bin: input.organization.bin,
             contactName: input.organization.contactName,
             contactPhone: input.organization.contactPhone,
             contactEmail: input.organization.contactEmail,
@@ -76,7 +70,6 @@ export function supabaseOrganizationRepository(db: DbGetter): OrganizationReposi
             twogisProfileUrl: location.twogisProfileUrl,
             reviewsTargetUrl,
           })),
-          p_subscription: input.subscription,
         }),
       );
       const [organization, locations] = await Promise.all([

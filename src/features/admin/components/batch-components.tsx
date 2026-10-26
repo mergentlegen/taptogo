@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Copy, Plus, QrCode } from "lucide-react";
+import { Copy, Pencil, Plus, QrCode, Trash2 } from "lucide-react";
 import type { Route } from "next";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
@@ -10,6 +10,7 @@ import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
 
+import { ConfirmDialog } from "@/components/data/confirm-dialog";
 import { FormAlert } from "@/components/forms/form-alert";
 import { FormField } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
@@ -27,8 +28,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cardTypes } from "@/features/cards/schemas";
 import { applyActionError } from "@/lib/forms";
 
-import { createBatchAction, flashCardAction } from "../actions";
-import { createBatchSchema } from "../card-schemas";
+import { createBatchAction, deleteBatchAction, flashCardAction, updateBatchAction } from "../actions";
+import { createBatchSchema, updateBatchSchema } from "../card-schemas";
 
 export function CreateBatchDialog() {
   const t = useTranslations();
@@ -192,5 +193,94 @@ export function FlashRow({ card, canManage }: { card: FlashCard; canManage: bool
         </div>
       </div>
     </li>
+  );
+}
+
+/** Rename or delete a batch. Deleting works only while no card of it was handed out. */
+export function BatchActions({
+  batch,
+  redirectTo,
+}: {
+  batch: { id: string; name: string; notes: string | null };
+  /** Where to go after deleting (null: stay and refresh the list). */
+  redirectTo: Route | null;
+}) {
+  const t = useTranslations();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [formError, setFormError] = useState<string | null>(null);
+  const form = useForm<z.input<typeof updateBatchSchema>, unknown, z.output<typeof updateBatchSchema>>({
+    resolver: zodResolver(updateBatchSchema),
+    defaultValues: { batchId: batch.id, name: batch.name, notes: batch.notes ?? "" },
+  });
+
+  const save = form.handleSubmit(() =>
+    startTransition(async () => {
+      setFormError(null);
+      const result = await updateBatchAction(form.getValues());
+      if (result.ok) {
+        toast.success(t("adm.batches.saved"));
+        setOpen(false);
+        router.refresh();
+      } else setFormError(applyActionError(result.error, form.setError, ["name", "notes"]));
+    }),
+  );
+
+  const remove = () =>
+    startTransition(async () => {
+      const result = await deleteBatchAction({ batchId: batch.id });
+      if (!result.ok) {
+        toast.error(result.error.message);
+        return;
+      }
+      toast.success(t("adm.batches.deleted"));
+      if (redirectTo) router.push(redirectTo);
+      else router.refresh();
+    });
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button size="sm" variant="ghost">
+            <Pencil data-icon="inline-start" />
+            {t("adm.batches.edit")}
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("adm.batches.editTitle")}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={save} noValidate className="grid gap-3">
+            {formError && <FormAlert>{formError}</FormAlert>}
+            <FormField label={t("adm.batches.name")} error={form.formState.errors.name?.message}>
+              <Input {...form.register("name")} />
+            </FormField>
+            <FormField label={t("adm.batches.notes")}>
+              <Textarea rows={3} {...form.register("notes")} />
+            </FormField>
+            <DialogFooter>
+              <Button type="submit" disabled={pending}>
+                {t("adm.common.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        trigger={
+          <Button size="sm" variant="ghost" disabled={pending}>
+            <Trash2 data-icon="inline-start" />
+            {t("adm.batches.delete")}
+          </Button>
+        }
+        title={t("adm.batches.deleteTitle")}
+        description={t("adm.batches.deleteText", { name: batch.name })}
+        confirmLabel={t("adm.batches.deleteConfirm")}
+        cancelLabel={t("adm.common.cancel")}
+        onConfirm={remove}
+      />
+    </>
   );
 }

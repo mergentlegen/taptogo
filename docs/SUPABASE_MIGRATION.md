@@ -22,7 +22,7 @@
 
 | Шаг                                   | Состояние                                                                                                                                                                                                                           |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Схема в Supabase                   | Готово: миграции `01…06` применены к проекту, `docs/supabase/schema.sql` совпадает с боевой БД, типы в `src/server/supabase/database.types.ts`. Проверка ключей: `pnpm check:supabase`.                                             |
+| 1. Схема в Supabase                   | Готово: миграции `01…07` применены к проекту (`07_slim_down` убрала лиды, подписки, платежи, БИН и юр. название и добавила удаление партий; её текст — `docs/supabase/migrations/07_slim_down.sql`), `docs/supabase/schema.sql` совпадает с боевой БД, типы в `src/server/supabase/database.types.ts`. Проверка ключей: `pnpm check:supabase`.                                             |
 | 2. Репозитории                        | Готово: `src/server/repositories/supabase/*`, клиенты в `src/server/supabase/clients.ts`. Интеграционные тесты на реальном проекте: `supabase-repositories.test.ts`.                                                                |
 | 3. Supabase Auth                      | Готово: `src/server/auth/supabase-auth-service.ts` (вход, сессии, приглашения, сброс и временные пароли, просмотр кабинета клиента), `src/proxy.ts` обновляет cookie сессии. Тесты: `supabase-auth-service.test.ts`.                |
 | 5. `DATA_SOURCE=supabase`, 6. очередь | Готово: ветка в `container.ts`, очередь писем в таблице `outbox_messages` (`supabase-outbox.ts`). Первый администратор: `pnpm create-admin you@example.com "Имя"`. Сквозная проверка на реальном проекте: `pnpm test:e2e:supabase`. |
@@ -32,7 +32,7 @@
 
 **Тесты на реальном проекте оставляют следы.** Журнал аудита нельзя менять и удалять (так задумано), а приложение пишет в него при каждом действии. Поэтому клиент или пользователь, с которыми что-то делали через интерфейс, физически не удаляются из БД: их можно только заблокировать/архивировать. Сквозные тесты (`pnpm test:e2e:supabase`) и тест страниц журнала (`SUPABASE_TEST_AUDIT=1`) годятся только для проекта разработки, пока в нём нет настоящих данных; на рабочей БД их запускать нельзя.
 
-Сводные запросы (аналитика касаний, `card_counts`, `idle_cards`, `batch_progress`, `payments_sum`, `latest_rating_snapshots`) лежат в конце `schema.sql` и вызываются через `rpc`. После изменения схемы типы надо перегенерировать (MCP `generate_typescript_types` или `supabase gen types`).
+Сводные запросы (аналитика касаний, `card_counts`, `idle_cards`, `batch_progress`, `latest_rating_snapshots`, `delete_batch`) лежат в конце `schema.sql` и вызываются через `rpc`. После изменения схемы типы надо перегенерировать (MCP `generate_typescript_types` или `supabase gen types`).
 
 ## Шаг 0. Подготовка (до создания проекта)
 
@@ -97,11 +97,11 @@
 
 ### Правила реализации
 
-- **Один файл на файл мока:** `repositories/supabase/{analytics,billing,cards,inbox,organizations,system,users}.ts` плюс `index.ts`.
+- **Один файл на файл мока:** `repositories/supabase/{analytics,cards,inbox,organizations,system,users}.ts` плюс `index.ts`.
 - **Маппинг строк:** функции `fromRow`/`toRow` для перевода snake_case ↔ camelCase. При чтении строку прогонять через Zod-схему сущности (`cardSchema.parse(...)`). Расхождение схемы БД и кода тогда сразу видно в ошибке, а не тихо в UI.
 - **`OrgScope` не выбрасывать:** если он передан, добавлять `.eq("organization_id", scope.organizationId)` даже при включённом RLS. Это защита в глубину: RLS ограничивает пользователя всеми его организациями, а scope — активной.
 - **Ошибки:** «строка не найдена» при `update` → `AppError("NOT_FOUND")`, как в моке (см. соглашения в `repositories/common.ts`). Код `42501` из триггеров-охранников → `AppError("FORBIDDEN")`, `23505` (unique) → `AppError("CONFLICT")`.
-- **Полнота ответа.** API Supabase по умолчанию отдаёт не больше 1000 строк. Методы, которые по контракту возвращают «всё» (`cards.list` одной организации или партии, `locations.list`, `ratingSnapshots.list`…), обязаны дочитывать страницами через `.range(from, to)`, иначе данные тихо обрежутся. Методы с `limit` (`search`, `leads.list`, `tickets.list`, `payments.list`) — один запрос.
+- **Полнота ответа.** API Supabase по умолчанию отдаёт не больше 1000 строк. Методы, которые по контракту возвращают «всё» (`cards.list` одной организации или партии, `locations.list`, `ratingSnapshots.list`…), обязаны дочитывать страницами через `.range(from, to)`, иначе данные тихо обрежутся. Методы с `limit` (`search`, `tickets.list`) — один запрос.
 - **Пачки id и кодов** (`findByIds`, `findByCodes`, `listByIds`, `comments.listFor`) — `.in("…", ids)`, разбивая список на куски по ~200, чтобы не упереться в длину URL.
 - **Суммы и атомарные операции уже написаны в `schema.sql`** и проверяются тестом `tests/schema/rls.test.ts`. Репозиторий только вызывает их через `rpc`:
 
@@ -109,19 +109,18 @@
   | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
   | `dailyStats.total`, `totalsBy`                  | `rpc("daily_stat_totals", { p_from, p_to, p_dimension, … })` — `sum … group by` в БД                            |
   | `dailyStats.increment`                          | `rpc("increment_daily_card_stat", …)`: атомарный `+N`, только системный клиент                                  |
-  | `cards.assign`                                  | `rpc("assign_cards", …)`: блокирует карточки и подписку, повторно проверяет «свободны» и лимит                  |
+  | `cards.assign`                                  | `rpc("assign_cards", …)`: блокирует карточки и повторно проверяет, что они свободны                           |
   | `batches.createWithCards`                       | `rpc("create_batch_with_cards", …)`: партия и карточки с номерами одной транзакцией; `23505` → `CONFLICT`       |
-  | `organizations.createClient`                    | `rpc("create_client", …)`: организация, филиалы, цели, подписка одной транзакцией                               |
+  | `organizations.createClient`                    | `rpc("create_client", …)`: организация, филиалы и цели одной транзакцией                                       |
   | `tapEvents.insert`                              | `upsert(…, { onConflict: "id,occurred_at", ignoreDuplicates: true }).select()`; пустой ответ → `created: false` |
   | `tapEvents.heatmap`                             | RPC `tap_heatmap(org, from, to, tz)`: `group by extract(isodow/hour from occurred_at at time zone tz)`          |
   | `tapEvents.breakdown`, `lastTapByCard`, `count` | RPC с `group by` / `distinct on (card_id)` / `count(*)`                                                         |
   | `cards.search`                                  | `select("*", { count: "exact" }).order("batch_id").order("number").limit(n)` — страница и общее число           |
   | `cards.count`, `countBy`, `batches.progress`    | `count: "exact", head: true` или RPC с `group by`                                                               |
   | `cards.listIdle`                                | `status = 'ACTIVE' and not exists (select 1 from daily_card_stats where … date >= since and taps > 0) limit n`  |
-  | `payments.sum`                                  | RPC `select coalesce(sum(amount_kzt), 0) … where paid_at in range`                                              |
   | `auditLogs.appendMany`                          | один `insert([...])`                                                                                            |
   | `auditLogs.list` (курсор)                       | keyset по `(created_at, id)`, курсор — base64 от этой пары                                                      |
-  | `organizations.list({ search })`                | `or(name.ilike.%q%,bin.eq.q)`; спецсимволы `%` и `_` в `q` экранировать                                         |
+  | `organizations.list({ search })`                | `name.ilike.%q%`; спецсимволы `%` и `_` в `q` экранировать                                         |
 
 - **Вид на организацию** (`repositories/tenant.ts`, `forOrganization`) работает поверх любых `Repositories` — для Supabase его переписывать не нужно.
 
@@ -218,7 +217,6 @@ function createSupabaseContainer(): Container {
 
 Тем же способом позже добавляются ежедневные задачи, для которых уже есть данные и настройки:
 
-- пересчёт статусов подписок с записью `subscription.status_change` в журнал;
 - еженедельный отчёт и предупреждение о падении активности: отдельного согласия (таблицы настроек) пока нет, его стоит завести вместе с рассылкой.
 
 Файлы:

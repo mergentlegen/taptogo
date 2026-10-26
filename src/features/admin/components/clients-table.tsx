@@ -9,10 +9,10 @@ import { useState } from "react";
 import { DataTable, type dataTableFeatures } from "@/components/data/data-table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { organizationStatuses, type OrganizationStatus } from "@/features/organizations/schemas";
-import { formatIsoDate, formatNumber } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import type { ClientRow } from "@/server/services/admin/client-service";
 
-import { OrganizationBadge, SubscriptionBadge } from "./badges";
+import { OrganizationBadge } from "./badges";
 
 const helper = createColumnHelper<typeof dataTableFeatures, ClientRow>();
 const ALL = "all";
@@ -34,28 +34,6 @@ export function ClientsTable({ clients }: { clients: ClientRow[] }) {
       ),
     }),
     helper.accessor((row) => row.city ?? "", { id: "city", header: t("adm.clients.columns.city") }),
-    helper.accessor((row) => row.plan ?? "", {
-      id: "plan",
-      header: t("adm.clients.columns.plan"),
-      cell: (info) => (info.row.original.plan ? t(`subscription.plans.${info.row.original.plan}`) : "—"),
-    }),
-    helper.accessor((row) => row.paidUntil ?? "", {
-      id: "paidUntil",
-      header: t("adm.clients.columns.paidUntil"),
-      cell: (info) => {
-        const row = info.row.original;
-        return row.paidUntil ? (
-          <span className="flex items-center gap-2 whitespace-nowrap">
-            {formatIsoDate(row.paidUntil)}
-            {row.subscriptionStatus && row.subscriptionStatus !== "ACTIVE" && (
-              <SubscriptionBadge status={row.subscriptionStatus} />
-            )}
-          </span>
-        ) : (
-          "—"
-        );
-      },
-    }),
     helper.accessor("cards", {
       header: t("adm.clients.columns.cards"),
       cell: (info) => <span className="tabular-nums">{info.getValue()}</span>,

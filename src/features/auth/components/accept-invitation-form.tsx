@@ -8,6 +8,7 @@ import type { z } from "zod";
 
 import { FormAlert } from "@/components/forms/form-alert";
 import { FormField } from "@/components/forms/form-field";
+import { PasswordInput } from "@/components/forms/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { applyActionError } from "@/lib/forms";
@@ -65,10 +66,10 @@ export function AcceptInvitationForm({ token, existingUser }: { token: string; e
         <Input autoComplete="name" autoFocus {...form.register("name")} />
       </FormField>
       <FormField label={t("fields.password")} error={errors.password?.message}>
-        <Input type="password" autoComplete="new-password" {...form.register("password")} />
+        <PasswordInput autoComplete="new-password" {...form.register("password")} />
       </FormField>
       <FormField label={t("fields.confirmPassword")} error={errors.confirmPassword?.message}>
-        <Input type="password" autoComplete="new-password" {...form.register("confirmPassword")} />
+        <PasswordInput autoComplete="new-password" {...form.register("confirmPassword")} />
       </FormField>
       <Button type="submit" size="lg" disabled={pending}>
         {t("invite.submit")}

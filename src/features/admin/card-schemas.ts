@@ -20,6 +20,15 @@ export const createBatchSchema = z.object({
 });
 export type CreateBatchInput = z.input<typeof createBatchSchema>;
 
+export const updateBatchSchema = z.object({
+  batchId: idSchema,
+  name: textSchema(120),
+  notes: createBatchSchema.shape.notes,
+});
+export type UpdateBatchInput = z.input<typeof updateBatchSchema>;
+
+export const deleteBatchSchema = z.object({ batchId: idSchema });
+
 /** Assign selected cards (ids), a range of a batch, or pasted codes. */
 export const assignCardsSchema = z
   .object({

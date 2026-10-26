@@ -33,13 +33,9 @@ export function forOrganization(repos: Repositories, organizationId: string) {
     organization: {
       get: () => repos.organizations.findById(organizationId),
       update: (
-        patch: Partial<
-          Pick<Organization, "name" | "legalName" | "bin" | "contactName" | "contactPhone" | "contactEmail">
-        >,
+        patch: Partial<Pick<Organization, "name" | "contactName" | "contactPhone" | "contactEmail">>,
       ) => repos.organizations.update(organizationId, patch),
     },
-    subscription: () => repos.subscriptions.findByOrganization(organizationId),
-    platformSettings: () => repos.platformSettings.get(),
 
     cards: {
       findById: (id: string) => repos.cards.findById(id, scope),

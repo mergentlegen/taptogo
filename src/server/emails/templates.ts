@@ -1,6 +1,5 @@
 import { createTranslator } from "next-intl";
 
-import type { OrgRole } from "@/features/team/schemas";
 import { defaultLocale } from "@/i18n/config";
 import messages from "@/i18n/messages/ru.json";
 import type { EmailMessage } from "@/server/providers/email/types";
@@ -25,33 +24,6 @@ export function passwordResetEmail(input: { to: string; name: string; link: stri
       input.link,
       "",
       t("emails.passwordReset.ignore"),
-      "",
-      t("emails.signature"),
-    ].join("\n"),
-  };
-}
-
-export function invitationEmail(input: {
-  to: string;
-  organization: string;
-  role: OrgRole;
-  link: string;
-  expires: Date;
-}): EmailMessage {
-  const expires = new Intl.DateTimeFormat("ru-RU", {
-    dateStyle: "long",
-    timeStyle: "short",
-    timeZone: "Asia/Almaty",
-  }).format(input.expires);
-  return {
-    to: input.to,
-    tag: "invitation",
-    subject: t("emails.invitation.subject", { organization: input.organization }),
-    text: [
-      t("emails.invitation.body", { organization: input.organization, role: t(`roles.${input.role}`) }),
-      "",
-      t("emails.invitation.action", { expires }),
-      input.link,
       "",
       t("emails.signature"),
     ].join("\n"),

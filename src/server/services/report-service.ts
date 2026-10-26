@@ -1,5 +1,6 @@
 import { createTranslator } from "next-intl";
 
+import { features } from "@/config/features";
 import { defaultLocale } from "@/i18n/config";
 import messages from "@/i18n/messages/ru.json";
 import { sanitizeCell, toCsv, type CellValue } from "@/lib/csv";
@@ -52,7 +53,9 @@ const COLUMNS: Record<ReportDimension, ReportColumn[]> = {
   days: ["date", "taps", "uniqueVisitors", "nfcTaps", "qrTaps"],
   cards: ["card", "code", "location", "employee", "taps", "uniqueVisitors", "nfcTaps", "qrTaps"],
   employees: ["employee", "location", "cards", "taps", "uniqueVisitors"],
-  locations: ["location", "taps", "uniqueVisitors", "rating", "newReviews"],
+  locations: features.twogisApi
+    ? ["location", "taps", "uniqueVisitors", "rating", "newReviews"]
+    : ["location", "taps", "uniqueVisitors"],
 };
 const SUMMABLE: readonly ReportColumn[] = ["taps", "uniqueVisitors", "nfcTaps", "qrTaps", "newReviews"];
 
@@ -123,7 +126,9 @@ export class ReportService {
       }
       case "locations": {
         const history = new RatingHistory(
-          await repos.ratingSnapshots.list({ locationIds: locations.map((l) => l.id) }),
+          features.twogisApi
+            ? await repos.ratingSnapshots.list({ locationIds: locations.map((l) => l.id) })
+            : [],
           ctx.timeZone,
         );
         rows = locations.map((l) => {

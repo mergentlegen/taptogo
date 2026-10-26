@@ -17,6 +17,7 @@ import type {
   AcceptInvitationResult,
   AuthService,
   ClientInfo,
+  CreateAccountResult,
   Impersonation,
   InvitationPreview,
   IssuedSession,
@@ -321,6 +322,20 @@ export class SupabaseAuthService implements AuthService {
     return password;
   }
 
+  async createAccount(input: { email: string; name: string }): Promise<CreateAccountResult> {
+    const email = input.email.trim().toLowerCase();
+    if (await this.deps.repositories.users.findByEmail(email)) return { ok: false, reason: "EXISTS" };
+    const password = generateTemporaryPassword();
+    const user = await this.createUser({
+      email,
+      name: input.name,
+      password,
+      lastLoginAt: null,
+      mustChangePassword: true,
+    });
+    return { ok: true, user, temporaryPassword: password };
+  }
+
   async startImpersonation(sessionId: string, organizationId: string, ttlMs: number): Promise<Impersonation> {
     const identity = await this.identity();
     if (!identity || identity.sessionId !== sessionId) throw new Error("Session not found");
@@ -547,7 +562,8 @@ export class SupabaseAuthService implements AuthService {
     email: string;
     name: string;
     password: string;
-    lastLoginAt: string;
+    lastLoginAt: string | null;
+    mustChangePassword?: boolean;
   }): Promise<User> {
     const system = this.deps.system();
     const { data, error } = await system.auth.admin.createUser({
@@ -566,7 +582,7 @@ export class SupabaseAuthService implements AuthService {
         platformRole: null,
         status: "ACTIVE",
         totpEnabled: false,
-        mustChangePassword: false,
+        mustChangePassword: input.mustChangePassword ?? false,
         lastLoginAt: input.lastLoginAt,
       });
     } catch (failure) {

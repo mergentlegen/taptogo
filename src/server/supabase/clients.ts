@@ -68,7 +68,7 @@ export const getUserClient = cache(async (): Promise<Db> => {
 
 /**
  * Client with the secret key: **bypasses RLS**. For flows with no user behind
- * the request (card redirect, landing leads, authentication, cron). The caller
+ * the request (card redirect, authentication, cron). The caller
  * checks every permission itself. One instance per process, no session.
  */
 export function getSystemClient(): Db {

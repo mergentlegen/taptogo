@@ -19,13 +19,7 @@ export function mockOrganizationRepository({ db, clock, newId }: MockContext): O
       return clone(
         db.organizations
           .filter((o) => !filter.statuses || filter.statuses.includes(o.status))
-          .filter(
-            (o) =>
-              !search ||
-              o.name.toLowerCase().includes(search) ||
-              o.legalName?.toLowerCase().includes(search) ||
-              o.bin?.includes(search),
-          )
+          .filter((o) => !search || o.name.toLowerCase().includes(search))
           .sort((a, b) => a.name.localeCompare(b.name, "ru")),
       );
     },
@@ -62,7 +56,6 @@ export function mockOrganizationRepository({ db, clock, newId }: MockContext): O
       db.organizations.push(organization);
       db.locations.push(...locations);
       db.targets.push(...targets);
-      db.subscriptions.push({ ...clone(input.subscription), organizationId: organization.id });
       return { organization: clone(organization), locations: clone(locations) };
     },
     async update(id, patch) {

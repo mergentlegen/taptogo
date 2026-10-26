@@ -32,7 +32,7 @@ export type Container = {
   /**
    * Data access with no user behind the request (Supabase: service role, RLS
    * bypassed). Only for flows that have no session by nature: the card
-   * redirect and tap recording, landing-page leads, authentication itself
+   * redirect and tap recording, authentication itself
    * (sign-in, invitations, password reset) and scheduled jobs. The calling
    * service is responsible for every check. In mock mode it is the same
    * object as `repositories`.
@@ -135,7 +135,7 @@ export function createMockContainer(db: MockDatabase, clock: () => Date = () => 
 /**
  * Real services: Supabase Auth and Postgres. `repositories` run under the signed-in
  * user's JWT (Row Level Security applies); everything without a user behind the
- * request — sign-in, the card redirect, landing leads — uses the secret-key client.
+ * request — sign-in, the card redirect — uses the secret-key client.
  */
 export function createSupabaseContainer(clock: () => Date = () => new Date()): Container {
   const env = getEnv();

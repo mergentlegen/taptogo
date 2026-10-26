@@ -9,6 +9,7 @@ import type { z } from "zod";
 
 import { FormAlert } from "@/components/forms/form-alert";
 import { FormField } from "@/components/forms/form-field";
+import { PasswordInput } from "@/components/forms/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { applyActionError } from "@/lib/forms";
@@ -47,7 +48,7 @@ export function LoginForm({ next }: { next?: string }) {
         <Input type="email" autoComplete="email" inputMode="email" autoFocus {...form.register("email")} />
       </FormField>
       <FormField label={t("fields.password")} error={errors.password?.message}>
-        <Input type="password" autoComplete="current-password" {...form.register("password")} />
+        <PasswordInput autoComplete="current-password" {...form.register("password")} />
       </FormField>
       <Button type="submit" size="lg" disabled={pending}>
         {t("login.submit")}

@@ -123,21 +123,6 @@ describe("cards", () => {
     expect((await repos.cards.findById(free.id))?.organizationId).toBe(orgA);
   });
 
-  it("refuses an assignment beyond the card limit and changes nothing", async () => {
-    const free = await repos.cards.list({ statuses: ["UNASSIGNED"] });
-    const held = await repos.cards.count({ organizationId: orgB, statuses: ["ACTIVE", "PAUSED", "LOST"] });
-    const result = await repos.cards.assign({
-      cardIds: free.slice(0, 2).map((c) => c.id),
-      organizationId: orgB,
-      locationId: null,
-      targetId: null,
-      activatedAt: NOW.toISOString(),
-      cardLimit: held + 1,
-    });
-    expect(result).toEqual({ ok: false, reason: "LIMIT_EXCEEDED" });
-    expect(await repos.cards.count({ statuses: ["UNASSIGNED"] })).toBe(free.length);
-  });
-
   it("answers platform-wide questions with counts and bounded pages", async () => {
     const all = await repos.cards.list();
     const page = await repos.cards.search({}, 5);

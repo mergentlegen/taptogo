@@ -1,9 +1,8 @@
 import type { Repositories } from "../index";
 import { mockDailyCardStatRepository, mockTapEventRepository } from "./analytics";
-import { mockPaymentRepository, mockSubscriptionRepository } from "./billing";
 import { mockCardBatchRepository, mockCardRepository } from "./cards";
 import type { MockContext } from "./context";
-import { mockInternalCommentRepository, mockLeadRepository, mockSupportTicketRepository } from "./inbox";
+import { mockInternalCommentRepository, mockSupportTicketRepository } from "./inbox";
 import {
   mockEmployeeRepository,
   mockLocationRepository,
@@ -30,10 +29,7 @@ export function createMockRepositories(context: MockContext): Repositories {
     cards: mockCardRepository(context),
     tapEvents: mockTapEventRepository(context),
     dailyStats: mockDailyCardStatRepository(context),
-    subscriptions: mockSubscriptionRepository(context),
-    payments: mockPaymentRepository(context),
     tickets: mockSupportTicketRepository(context),
-    leads: mockLeadRepository(context),
     comments: mockInternalCommentRepository(context),
     auditLogs: mockAuditLogRepository(context),
     platformSettings: mockPlatformSettingsRepository(context),

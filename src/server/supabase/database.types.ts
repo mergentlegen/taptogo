@@ -405,50 +405,6 @@ export type Database = {
           },
         ];
       };
-      leads: {
-        Row: {
-          assignee_id: string | null;
-          business_name: string;
-          city: string | null;
-          created_at: string;
-          id: string;
-          message: string | null;
-          name: string;
-          phone: string;
-          status: Database["public"]["Enums"]["lead_status"];
-        };
-        Insert: {
-          assignee_id?: string | null;
-          business_name: string;
-          city?: string | null;
-          created_at?: string;
-          id?: string;
-          message?: string | null;
-          name: string;
-          phone: string;
-          status?: Database["public"]["Enums"]["lead_status"];
-        };
-        Update: {
-          assignee_id?: string | null;
-          business_name?: string;
-          city?: string | null;
-          created_at?: string;
-          id?: string;
-          message?: string | null;
-          name?: string;
-          phone?: string;
-          status?: Database["public"]["Enums"]["lead_status"];
-        };
-        Relationships: [
-          {
-            foreignKeyName: "leads_assignee_id_fkey";
-            columns: ["assignee_id"];
-            isOneToOne: false;
-            referencedRelation: "users";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
       locations: {
         Row: {
           address: string;
@@ -528,37 +484,31 @@ export type Database = {
       };
       organizations: {
         Row: {
-          bin: string | null;
-          contact_email: string;
-          contact_name: string;
-          contact_phone: string;
+          contact_email: string | null;
+          contact_name: string | null;
+          contact_phone: string | null;
           created_at: string;
           id: string;
-          legal_name: string | null;
           name: string;
           status: Database["public"]["Enums"]["organization_status"];
           timezone: string;
         };
         Insert: {
-          bin?: string | null;
-          contact_email: string;
-          contact_name: string;
-          contact_phone: string;
+          contact_email?: string | null;
+          contact_name?: string | null;
+          contact_phone?: string | null;
           created_at?: string;
           id?: string;
-          legal_name?: string | null;
           name: string;
           status?: Database["public"]["Enums"]["organization_status"];
           timezone?: string;
         };
         Update: {
-          bin?: string | null;
-          contact_email?: string;
-          contact_name?: string;
-          contact_phone?: string;
+          contact_email?: string | null;
+          contact_name?: string | null;
+          contact_phone?: string | null;
           created_at?: string;
           id?: string;
-          legal_name?: string | null;
           name?: string;
           status?: Database["public"]["Enums"]["organization_status"];
           timezone?: string;
@@ -627,69 +577,18 @@ export type Database = {
           },
         ];
       };
-      payments: {
-        Row: {
-          amount_kzt: number;
-          comment: string | null;
-          id: string;
-          method: Database["public"]["Enums"]["payment_method"];
-          organization_id: string;
-          paid_at: string;
-          recorded_by_id: string | null;
-        };
-        Insert: {
-          amount_kzt: number;
-          comment?: string | null;
-          id?: string;
-          method: Database["public"]["Enums"]["payment_method"];
-          organization_id: string;
-          paid_at: string;
-          recorded_by_id?: string | null;
-        };
-        Update: {
-          amount_kzt?: number;
-          comment?: string | null;
-          id?: string;
-          method?: Database["public"]["Enums"]["payment_method"];
-          organization_id?: string;
-          paid_at?: string;
-          recorded_by_id?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "payments_organization_id_fkey";
-            columns: ["organization_id"];
-            isOneToOne: false;
-            referencedRelation: "organizations";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "payments_recorded_by_id_fkey";
-            columns: ["recorded_by_id"];
-            isOneToOne: false;
-            referencedRelation: "users";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
       platform_settings: {
         Row: {
           allowed_redirect_domains: string[];
-          grace_days: number;
           id: boolean;
-          plans: Json;
         };
         Insert: {
           allowed_redirect_domains: string[];
-          grace_days: number;
           id?: boolean;
-          plans: Json;
         };
         Update: {
           allowed_redirect_domains?: string[];
-          grace_days?: number;
           id?: boolean;
-          plans?: Json;
         };
         Relationships: [];
       };
@@ -765,38 +664,6 @@ export type Database = {
             foreignKeyName: "redirect_targets_organization_id_fkey";
             columns: ["organization_id"];
             isOneToOne: false;
-            referencedRelation: "organizations";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      subscriptions: {
-        Row: {
-          card_limit: number;
-          organization_id: string;
-          paid_until: string;
-          plan: Database["public"]["Enums"]["plan"];
-          status: Database["public"]["Enums"]["subscription_status"];
-        };
-        Insert: {
-          card_limit: number;
-          organization_id: string;
-          paid_until: string;
-          plan: Database["public"]["Enums"]["plan"];
-          status?: Database["public"]["Enums"]["subscription_status"];
-        };
-        Update: {
-          card_limit?: number;
-          organization_id?: string;
-          paid_until?: string;
-          plan?: Database["public"]["Enums"]["plan"];
-          status?: Database["public"]["Enums"]["subscription_status"];
-        };
-        Relationships: [
-          {
-            foreignKeyName: "subscriptions_organization_id_fkey";
-            columns: ["organization_id"];
-            isOneToOne: true;
             referencedRelation: "organizations";
             referencedColumns: ["id"];
           },
@@ -980,6 +847,10 @@ export type Database = {
         };
         Returns: { key: string; n: number }[];
       };
+      delete_batch: {
+        Args: { p_batch_id: string };
+        Returns: string;
+      };
       idle_cards: {
         Args: { p_activated_before: string; p_limit: number; p_no_taps_since: string };
         Returns: Database["public"]["Tables"]["cards"]["Row"][];
@@ -1014,10 +885,6 @@ export type Database = {
       revoke_user_sessions: {
         Args: { p_except_session_id?: string; p_user_id: string };
         Returns: undefined;
-      };
-      payments_sum: {
-        Args: { p_from: string; p_to: string };
-        Returns: number;
       };
       tap_breakdown: {
         Args: {
@@ -1058,7 +925,6 @@ export type Database = {
         Args: {
           p_activated_at: string;
           p_card_ids: string[];
-          p_card_limit: number;
           p_location_id: string;
           p_organization_id: string;
           p_target_id: string;
@@ -1076,7 +942,7 @@ export type Database = {
         Returns: string;
       };
       create_client: {
-        Args: { p_locations: Json; p_organization: Json; p_subscription: Json };
+        Args: { p_locations: Json; p_organization: Json };
         Returns: string;
       };
       daily_stat_totals: {
@@ -1115,17 +981,13 @@ export type Database = {
     Enums: {
       card_status: "UNASSIGNED" | "ACTIVE" | "PAUSED" | "LOST" | "REVOKED";
       card_type: "NFC_CARD" | "STICKER" | "STAND" | "QR_ONLY";
-      comment_subject: "TICKET" | "LEAD";
+      comment_subject: "TICKET";
       device_type: "MOBILE" | "TABLET" | "DESKTOP" | "UNKNOWN";
-      lead_status: "NEW" | "IN_PROGRESS" | "CONVERTED" | "REJECTED";
       operating_system: "IOS" | "ANDROID" | "WINDOWS" | "MACOS" | "LINUX" | "OTHER";
       org_role: "OWNER" | "MANAGER";
       organization_status: "ACTIVE" | "SUSPENDED" | "ARCHIVED";
-      payment_method: "KASPI" | "BANK_TRANSFER" | "CASH";
-      plan: "START" | "BUSINESS" | "NETWORK";
       platform_role: "ADMIN";
       redirect_target_type: "TWOGIS_REVIEW" | "TWOGIS_PROFILE" | "GOOGLE_MAPS" | "CUSTOM";
-      subscription_status: "TRIAL" | "ACTIVE" | "GRACE" | "EXPIRED";
       tap_source: "NFC" | "QR";
       ticket_status: "NEW" | "IN_PROGRESS" | "CLOSED";
       user_status: "ACTIVE" | "BLOCKED" | "PENDING";

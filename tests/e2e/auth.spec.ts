@@ -186,25 +186,20 @@ test.describe("temporary passwords", () => {
     const email = `temp-${Date.now()}@example.kz`;
     const newPassword = "Мой-новый-пароль-2026";
 
-    // 1. Admin invites a new person (the link goes to the manual sending queue).
+    // 1. Admin invites a new person: the link is shown on screen, to be sent by hand.
     await signIn(page, accounts.admin);
     await page.goto(`/admin/organizations/${await orgIdByName("Coffee Point")}?tab=users`);
     await page.getByRole("button", { name: "Пригласить" }).click();
     await page.getByRole("dialog").getByLabel("Email").fill(email);
-    await page.getByRole("dialog").getByRole("button", { name: "Отправить приглашение" }).click();
-    await expect(page.getByText("Приглашение отправлено")).toBeVisible();
-    await page.goto("/admin/outbox");
-    const link = await page
-      .getByTestId("outbox-message")
-      .filter({ hasText: email })
-      .textContent()
-      .then((text) => /\/invite\/[A-Za-z0-9_-]+/.exec(text ?? "")?.[0]);
-    expect(link).toBeTruthy();
+    await page.getByRole("dialog").getByRole("button", { name: "Создать ссылку" }).click();
+    const link = new URL((await page.getByTestId("invitation-link").textContent())!).pathname;
+    expect(link).toMatch(/^\/invite\/[A-Za-z0-9_-]+$/);
+    await page.keyboard.press("Escape");
 
     // 2. The person accepts the invitation and becomes a member.
     const newcomer = await browser.newContext();
     const invited = await newcomer.newPage();
-    await invited.goto(link!);
+    await invited.goto(link);
     await invited.getByLabel("Ваше имя").fill("Временный Клиент");
     await invited.getByLabel("Пароль", { exact: true }).fill("Сначала-свой-пароль-2026");
     await invited.getByLabel("Повторите пароль").fill("Сначала-свой-пароль-2026");

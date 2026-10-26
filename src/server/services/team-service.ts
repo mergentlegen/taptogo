@@ -1,9 +1,7 @@
 import { getEnv } from "@/env";
 import type { Invitation, OrgRole } from "@/features/team/schemas";
 import { randomToken, sha256Hex } from "@/server/auth/session-token";
-import { invitationEmail } from "@/server/emails/templates";
 import { serviceError } from "@/server/i18n";
-import type { EmailProvider } from "@/server/providers/email/types";
 import type { Repositories } from "@/server/repositories";
 import { forOrganization } from "@/server/repositories/tenant";
 import type { AuditService } from "@/server/services/audit-service";
@@ -24,13 +22,12 @@ export type TeamMember = {
 
 export type PendingInvitation = Invitation & { status: "PENDING" | "EXPIRED" };
 
-/** The invitation message is queued for manual sending; the link is shown on /admin/outbox. */
-export type InvitationResult = { invitation: Invitation };
+/** The link is shown on screen for the inviter to copy and send themselves (there is no mail service). */
+export type InvitationResult = { invitation: Invitation; link: string };
 
 export class TeamService {
   constructor(
     private readonly repositories: Repositories,
-    private readonly email: EmailProvider,
     private readonly audit: AuditService,
     private readonly clock: () => Date,
   ) {}
@@ -83,8 +80,7 @@ export class TeamService {
   }
 
   /**
-   * Shared by the cabinet and the admin "new client" wizard (which checks
-   * platform permissions itself). A new invitation replaces any earlier
+   * Shared by the cabinet and the admin panel (which checks platform permissions itself). A new invitation replaces any earlier
    * unaccepted one for the same address.
    */
   async createInvitation(
@@ -99,7 +95,6 @@ export class TeamService {
       await repos.invitations.delete(old.id);
     }
 
-    const organization = await repos.organization.get();
     const token = randomToken();
     const expires = new Date(this.clock().getTime() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
     const invitation = await repos.invitations.create({
@@ -119,16 +114,8 @@ export class TeamService {
       after: { email, role: input.role },
     });
 
-    await this.email.send(
-      invitationEmail({
-        to: email,
-        organization: organization?.name ?? "TapToGo",
-        role: input.role,
-        link: new URL(`/invite/${token}`, getEnv().APP_URL).toString(),
-        expires,
-      }),
-    );
-    return { invitation };
+    const link = new URL(`/invite/${token}`, getEnv().APP_URL).toString();
+    return { invitation, link };
   }
 
   async revokeInvitation(ctx: OrgContext, invitationId: string): Promise<void> {

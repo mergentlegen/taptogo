@@ -43,7 +43,6 @@ export default async function AdminTicketPage({ params }: PageProps<"/admin/supp
         description={`${ticket.organization} · ${ticket.author} · ${formatDateTime(ticket.createdAt)}`}
         actions={
           <InboxControls
-            kind="ticket"
             id={ticket.id}
             status={ticket.status}
             assigneeId={ticket.assigneeId}

@@ -17,7 +17,7 @@ import { updateOrganizationAction } from "../actions";
 import { organizationSchema } from "../form-schemas";
 
 type Values = z.input<typeof organizationSchema>;
-const FIELDS = ["name", "legalName", "bin", "contactName", "contactPhone", "contactEmail"] as const;
+const FIELDS = ["name", "contactName", "contactPhone", "contactEmail"] as const;
 
 export function OrganizationForm({ values, readOnly }: { values: Values; readOnly: boolean }) {
   const t = useTranslations("settings.organization");
@@ -47,7 +47,7 @@ export function OrganizationForm({ values, readOnly }: { values: Values; readOnl
             key={field}
             label={t(field)}
             error={form.formState.errors[field]?.message}
-            className={field === "name" || field === "legalName" ? "sm:col-span-2" : undefined}
+            className={field === "name" ? "sm:col-span-2" : undefined}
           >
             <Input
               type={field === "contactEmail" ? "email" : field === "contactPhone" ? "tel" : "text"}

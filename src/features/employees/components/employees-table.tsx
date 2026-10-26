@@ -21,13 +21,10 @@ export function EmployeesTable({
   employees,
   locations,
   canManage,
-  showStats,
 }: {
   employees: EmployeeRow[];
   locations: { id: string; name: string }[];
   canManage: boolean;
-  /** False when the subscription expired: taps and ranks are hidden. */
-  showStats: boolean;
 }) {
   const t = useTranslations("employees");
   const [pending, startTransition] = useTransition();
@@ -40,17 +37,13 @@ export function EmployeesTable({
     });
 
   const columns = helper.columns([
-    ...(showStats
-      ? [
-          helper.accessor((row) => row.rank ?? Number.MAX_SAFE_INTEGER, {
-            id: "rank",
-            header: t("columns.rank"),
-            cell: (info) => (
-              <span className="text-muted-foreground tabular-nums">{info.row.original.rank ?? "—"}</span>
-            ),
-          }),
-        ]
-      : []),
+    helper.accessor((row) => row.rank ?? Number.MAX_SAFE_INTEGER, {
+      id: "rank",
+      header: t("columns.rank"),
+      cell: (info) => (
+        <span className="text-muted-foreground tabular-nums">{info.row.original.rank ?? "—"}</span>
+      ),
+    }),
     helper.accessor("name", {
       header: t("columns.name"),
       cell: (info) => (
@@ -71,14 +64,10 @@ export function EmployeesTable({
       header: t("columns.cards"),
       cell: (info) => <span className="tabular-nums">{info.getValue()}</span>,
     }),
-    ...(showStats
-      ? [
-          helper.accessor("taps", {
-            header: t("columns.taps"),
-            cell: (info) => <span className="font-medium tabular-nums">{formatNumber(info.getValue())}</span>,
-          }),
-        ]
-      : []),
+    helper.accessor("taps", {
+      header: t("columns.taps"),
+      cell: (info) => <span className="font-medium tabular-nums">{formatNumber(info.getValue())}</span>,
+    }),
     helper.accessor("isActive", {
       header: t("columns.status"),
       cell: (info) => (
@@ -137,9 +126,7 @@ export function EmployeesTable({
       getRowId={(row) => row.id}
       renderMobileRow={(employee) => (
         <div className="flex items-center gap-3">
-          {showStats && (
-            <span className="w-6 text-center text-muted-foreground tabular-nums">{employee.rank ?? "—"}</span>
-          )}
+          <span className="w-6 text-center text-muted-foreground tabular-nums">{employee.rank ?? "—"}</span>
           <div className="min-w-0 flex-1">
             <p className="font-medium">{employee.name}</p>
             <p className="truncate text-sm text-muted-foreground">
@@ -148,7 +135,7 @@ export function EmployeesTable({
                 .join(" · ")}
             </p>
           </div>
-          {showStats && <span className="font-medium tabular-nums">{formatNumber(employee.taps)}</span>}
+          <span className="font-medium tabular-nums">{formatNumber(employee.taps)}</span>
           {canManage && (
             <EmployeeDialog
               employee={employee}
@@ -162,7 +149,7 @@ export function EmployeesTable({
           )}
         </div>
       )}
-      initialSorting={showStats ? [{ id: "taps", desc: true }] : [{ id: "name", desc: false }]}
+      initialSorting={[{ id: "taps", desc: true }]}
       emptyText={t("empty")}
       toolbar={
         canManage ? (

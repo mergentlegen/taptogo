@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
 
   const ctx = orgContextFrom(access);
   const services = getServices();
-  if (!(await services.subscription.view(ctx)).statsAllowed) return new Response(null, { status: 403 });
 
   const query = request.nextUrl.searchParams;
   const format = query.get("format") === "xlsx" ? "xlsx" : "csv";

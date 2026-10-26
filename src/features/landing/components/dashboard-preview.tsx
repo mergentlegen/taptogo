@@ -5,7 +5,7 @@ import { TopList } from "@/components/charts/top-list";
 import { StatCard } from "@/components/data/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DEFAULT_TIME_ZONE, toLocalDate } from "@/lib/dates";
-import { formatChange, formatNumber, formatPercent, formatRating, formatRatingDelta } from "@/lib/format";
+import { formatChange, formatNumber } from "@/lib/format";
 
 import { landingPreviewData } from "../preview-data";
 
@@ -28,31 +28,14 @@ export async function DashboardPreview() {
           <span className="size-2.5 rounded-full bg-muted-foreground/25" />
         </div>
         <div className="grid gap-4 p-4 sm:p-6">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3">
             <StatCard
               label={t("taps")}
               value={formatNumber(data.taps.current)}
               change={up(formatChange(data.taps.current, data.taps.previous))}
               changeCaption={t("vsPrevious")}
             />
-            <StatCard
-              label={t("rating")}
-              value={formatRating(data.rating.current)}
-              change={up(formatRatingDelta(data.rating.delta))}
-              changeCaption={t("vsPrevious")}
-            />
-            <StatCard
-              label={t("reviews")}
-              value={formatNumber(data.reviews.current)}
-              change={up(formatChange(data.reviews.current, data.reviews.previous))}
-              changeCaption={t("vsPrevious")}
-            />
-            <StatCard
-              label={t("conversion")}
-              value={formatPercent(data.conversion.current)}
-              change={up(formatChange(data.conversion.current, data.conversion.previous))}
-              changeCaption={t("vsPrevious")}
-            />
+            <StatCard label={t("perDay")} value={formatNumber(data.perDay)} />
           </div>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <Card>

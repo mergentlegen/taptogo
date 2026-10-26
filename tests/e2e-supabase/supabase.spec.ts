@@ -65,7 +65,6 @@ test.beforeAll(async () => {
       timezone: "Asia/Almaty",
     },
     p_locations: [{ name: `${ORG_NAME} филиал`, address: "Алматы, Абая 1" }],
-    p_subscription: { plan: "START", cardLimit: 5, paidUntil: "2030-01-01", status: "ACTIVE" },
   });
   if (created.error) throw created.error;
   orgId = created.data as string;
@@ -78,7 +77,6 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   if (!db) return;
   if (orgId) await db.from("organizations").delete().eq("id", orgId);
-  for (const address of emails) await db.from("outbox_messages").delete().eq("to_address", address);
   for (const id of authIds) await db.auth.admin.deleteUser(id);
 });
 
@@ -134,10 +132,8 @@ test("an administrator reaches the admin panel and its pages", async ({ page }) 
     "/admin/cards",
     "/admin/batches",
     "/admin/targets",
-    "/admin/billing",
     "/admin/outbox",
     "/admin/support",
-    "/admin/leads",
     "/admin/staff",
     "/admin/audit",
     "/admin/settings",
@@ -163,28 +159,19 @@ test("staff can look into a client's cabinet read-only", async ({ page }) => {
   await expect(page.getByTestId("impersonation-banner")).toHaveCount(0);
 });
 
-test("an invitation travels through the manual queue and creates a working account", async ({
-  page,
-  browser,
-}) => {
+test("an invitation link creates a working account", async ({ page, browser }) => {
   const invited = email("invited");
   emails.push(invited);
   await signIn(page, email("admin"));
   await page.goto(`/admin/organizations/${orgId}?tab=users`);
   await page.getByRole("button", { name: "Пригласить" }).click();
   await page.getByRole("dialog").getByLabel("Email").fill(invited);
-  await page.getByRole("dialog").getByRole("button", { name: "Отправить приглашение" }).click();
-  await expect(page.getByText("Приглашение отправлено")).toBeVisible();
-
-  await page.goto("/admin/outbox");
-  const message = page.getByTestId("outbox-message").filter({ hasText: invited });
-  const link = /\/invite\/[A-Za-z0-9_-]+/.exec((await message.textContent()) ?? "")?.[0];
-  expect(link).toBeTruthy();
-  await message.getByRole("button", { name: "Отправлено" }).click();
-  await expect(message.getByText(/Отправлено /)).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Создать ссылку" }).click();
+  const link = new URL((await page.getByTestId("invitation-link").textContent())!).pathname;
+  expect(link).toMatch(/^\/invite\/[A-Za-z0-9_-]+$/);
 
   const { context, page: newcomer } = await freshPage(browser);
-  await newcomer.goto(link!);
+  await newcomer.goto(link);
   await newcomer.getByLabel("Ваше имя").fill("Приглашённый Е2Е");
   await newcomer.getByLabel("Пароль", { exact: true }).fill(NEW_PASSWORD);
   await newcomer.getByLabel("Повторите пароль").fill(NEW_PASSWORD);
@@ -200,6 +187,30 @@ test("an invitation travels through the manual queue and creates a working accou
   await signIn(again.page, invited, NEW_PASSWORD);
   await expect(again.page).toHaveURL(/\/app$/);
   await again.context.close();
+});
+
+test("an admin creates an account with a temporary password for a client's employee", async ({
+  page,
+  browser,
+}) => {
+  const created = email("created");
+  emails.push(created);
+  await signIn(page, email("admin"));
+  await page.goto(`/admin/organizations/${orgId}?tab=users`);
+  await page.getByRole("button", { name: "Создать аккаунт" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Имя").fill("Созданный Е2Е");
+  await dialog.getByLabel("Email").fill(created);
+  await dialog.getByRole("button", { name: "Создать", exact: true }).click();
+  const password = (await dialog.getByTestId("temporary-password").textContent())!;
+  expect(password).toMatch(/^[A-Za-z0-9]{12}$/);
+
+  const profile = await db.from("users").select("id").eq("email", created).single();
+  if (profile.data) authIds.push(profile.data.id);
+  const { context, page: person } = await freshPage(browser);
+  await signIn(person, created, password);
+  await expect(person).toHaveURL(/\/change-password$/);
+  await context.close();
 });
 
 test("a temporary password must be replaced before anything else", async ({ page, browser }) => {

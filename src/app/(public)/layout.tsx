@@ -10,7 +10,7 @@ import { salesContacts } from "@/config/contacts";
 
 const sectionLinks = [
   { hash: "how-it-works", key: "howItWorks" },
-  { hash: "pricing", key: "pricing" },
+  { hash: "features", key: "features" },
   { hash: "faq", key: "faq" },
 ] as const;
 
@@ -57,11 +57,13 @@ export default async function PublicLayout({ children }: { children: ReactNode }
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <p>{t("public.footer.rights", { year: new Date().getFullYear() })}</p>
           <div className="flex flex-wrap gap-x-6 gap-y-2">
-            <a href={salesContacts.phoneHref} className="hover:text-foreground">
-              {salesContacts.phone}
-            </a>
-            <a href={`mailto:${salesContacts.email}`} className="hover:text-foreground">
-              {salesContacts.email}
+            <a
+              href={salesContacts.whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground"
+            >
+              WhatsApp {salesContacts.whatsapp}
             </a>
             <Link href="/admin" className="hover:text-foreground">
               {t("public.footer.admin")}

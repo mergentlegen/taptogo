@@ -1,26 +1,15 @@
 import { z } from "zod";
 
 import { organizationStatusSchema } from "@/features/organizations/schemas";
-import { planSchema } from "@/features/subscriptions/schemas";
 import { orgRoleSchema } from "@/features/team/schemas";
-import {
-  binSchema,
-  dateSchema,
-  emailSchema,
-  emptyToNull,
-  httpsUrlSchema,
-  idSchema,
-  phoneSchema,
-  textSchema,
-} from "@/lib/schemas";
+import { emailSchema, emptyToNull, httpsUrlSchema, idSchema, phoneSchema, textSchema } from "@/lib/schemas";
 
 export const clientOrganizationSchema = z.object({
   name: textSchema(120),
-  legalName: emptyToNull(textSchema(200)),
-  bin: emptyToNull(binSchema),
-  contactName: textSchema(120),
-  contactPhone: phoneSchema,
-  contactEmail: emailSchema,
+  /** The contact person is optional: the title and the address of a location are enough. */
+  contactName: emptyToNull(textSchema(120)),
+  contactPhone: emptyToNull(phoneSchema),
+  contactEmail: emptyToNull(emailSchema),
 });
 
 export const newLocationSchema = z.object({
@@ -34,12 +23,7 @@ export const newLocationSchema = z.object({
 export const createClientSchema = z.object({
   organization: clientOrganizationSchema,
   locations: z.array(newLocationSchema).min(1).max(20),
-  owner: z.object({ email: emailSchema }),
-  subscription: z.object({
-    plan: planSchema,
-    paidUntil: dateSchema,
-    trial: z.boolean(),
-  }),
+  owner: z.object({ email: emailSchema, name: textSchema(120) }),
 });
 export type CreateClientInput = z.input<typeof createClientSchema>;
 
@@ -51,6 +35,12 @@ export const temporaryPasswordSchema = z.object({ organizationId: idSchema, user
 export const inviteToClientSchema = z.object({
   organizationId: idSchema,
   email: emailSchema,
+  role: orgRoleSchema,
+});
+export const createAccountSchema = z.object({
+  organizationId: idSchema,
+  email: emailSchema,
+  name: textSchema(120),
   role: orgRoleSchema,
 });
 export const resolveTwogisSchema = z.object({ url: httpsUrlSchema });

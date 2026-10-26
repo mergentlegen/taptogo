@@ -5,6 +5,8 @@ import type { NewEntity, OrgScope } from "./common";
 
 export type NewCard = Omit<NewEntity<Card>, "batchId" | "number">;
 
+export type BatchPatch = Partial<Pick<CardBatch, "name" | "notes">>;
+
 export interface CardBatchRepository {
   findById(id: string): Promise<CardBatch | null>;
   /** Newest first. */
@@ -18,6 +20,13 @@ export interface CardBatchRepository {
     batch: NewEntity<CardBatch>,
     cards: readonly NewCard[],
   ): Promise<{ batch: CardBatch; cards: Card[] }>;
+  /** Renames a batch or changes its note; the quantity and the card type are fixed. */
+  update(id: string, patch: BatchPatch): Promise<CardBatch>;
+  /**
+   * Deletes the batch with its cards, in ONE transaction, but only while none of the cards
+   * was handed out to a client or has a tap history (IN_USE; release them first).
+   */
+  delete(id: string): Promise<"OK" | "NOT_FOUND" | "IN_USE">;
   /** Per batch: how many cards are assigned to clients, NFC-written and locked. */
   progress(): Promise<Record<string, { assigned: number; written: number; locked: number }>>;
 }
@@ -56,12 +65,10 @@ export type AssignCardsInput = {
   locationId: string | null;
   targetId: string | null;
   activatedAt: string;
-  /** Cards the organization may hold (not REVOKED); null = no limit. */
-  cardLimit: number | null;
 };
 
 export type AssignCardsResult =
-  { ok: true; cards: Card[] } | { ok: false; reason: "NOT_FOUND" | "NOT_UNASSIGNED" | "LIMIT_EXCEEDED" };
+  { ok: true; cards: Card[] } | { ok: false; reason: "NOT_FOUND" | "NOT_UNASSIGNED" };
 
 /** Countable card dimensions (SQL `group by`). */
 export type CardCountDimension = "organizationId" | "targetId" | "batchId";
@@ -76,7 +83,7 @@ export interface CardRepository {
   findByCodes(codes: readonly string[]): Promise<Card[]>;
   /**
    * Every match, ordered by batch and number. Meant for one organization or one
-   * batch (bounded by the plan limit / batch size); platform-wide screens use `search`.
+   * batch (bounded by the batch size); platform-wide screens use `search`.
    */
   list(filter?: CardFilter): Promise<Card[]>;
   /** Platform-wide search for the admin panel: at most `limit` rows plus the total count. */
@@ -94,8 +101,7 @@ export interface CardRepository {
   updateMany(ids: readonly string[], patch: CardPatch): Promise<Card[]>;
   /**
    * Hands UNASSIGNED cards to a client in ONE transaction: re-checks that every
-   * card is still unassigned and that the client stays within `cardLimit`
-   * (Supabase: `select … for update` inside an RPC). Concurrent assignments of
+   * card is still unassigned (Supabase: `select … for update` inside an RPC). Concurrent assignments of
    * the same card cannot both succeed.
    */
   assign(input: AssignCardsInput): Promise<AssignCardsResult>;

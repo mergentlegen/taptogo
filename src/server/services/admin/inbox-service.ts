@@ -1,4 +1,3 @@
-import type { Lead, LeadStatus } from "@/features/leads/schemas";
 import type {
   CommentSubject,
   InternalComment,
@@ -13,12 +12,11 @@ import { assertAdmin, type AdminContext } from "./context";
 
 export type CommentView = InternalComment & { author: string };
 export type TicketRow = SupportTicket & { organization: string; author: string; assignee: string | null };
-export type LeadRow = Lead & { assignee: string | null };
 
-/** Tickets and leads pile up forever; inbox pages show the newest ones. */
+/** Tickets pile up forever; inbox pages show the newest ones. */
 export const INBOX_SHOWN = 100;
 
-/** Support tickets and landing-page leads, with internal (staff-only) comments. */
+/** Support tickets, with internal (staff-only) comments. */
 export class AdminInboxService {
   constructor(
     private readonly repositories: Repositories,
@@ -60,17 +58,11 @@ export class AdminInboxService {
     }));
   }
 
-  async leads(statuses?: LeadStatus[]): Promise<LeadRow[]> {
-    const leads = await this.repositories.leads.list({ statuses, limit: INBOX_SHOWN });
-    const names = await this.userNames(leads.map((l) => l.assigneeId));
-    return leads.map((l) => ({ ...l, assignee: l.assigneeId ? (names.get(l.assigneeId) ?? null) : null }));
-  }
-
   async comments(subjectType: CommentSubject, subjectId: string): Promise<CommentView[]> {
     return (await this.commentsFor(subjectType, [subjectId])).get(subjectId) ?? [];
   }
 
-  /** Comments of a whole list page in one query (no query per ticket or lead). */
+  /** Comments of a whole list page in one query (no query per ticket). */
   async commentsFor(subjectType: CommentSubject, subjectIds: string[]): Promise<Map<string, CommentView[]>> {
     const comments = subjectIds.length
       ? await this.repositories.comments.listFor(subjectType, subjectIds)
@@ -107,34 +99,10 @@ export class AdminInboxService {
     });
   }
 
-  async updateLead(
-    ctx: AdminContext,
-    id: string,
-    patch: { status?: LeadStatus; assigneeId?: string | null },
-  ) {
-    assertAdmin(ctx, "admin.inbox");
-    const before = await this.repositories.leads.findById(id);
-    if (!before) throw serviceError("NOT_FOUND", "leadNotFound");
-    await this.assertAssignee(patch.assigneeId);
-    const after = await this.repositories.leads.update(id, patch);
-    await this.audit.record({
-      actorUserId: ctx.userId,
-      action: "lead.update",
-      entityType: "lead",
-      entityId: id,
-      before: { status: before.status, assigneeId: before.assigneeId },
-      after: { status: after.status, assigneeId: after.assigneeId },
-    });
-  }
-
   async addComment(ctx: AdminContext, subjectType: CommentSubject, subjectId: string, body: string) {
     assertAdmin(ctx, "admin.inbox");
-    const exists =
-      subjectType === "TICKET"
-        ? await this.repositories.tickets.findById(subjectId)
-        : await this.repositories.leads.findById(subjectId);
-    if (!exists)
-      throw serviceError("NOT_FOUND", subjectType === "TICKET" ? "ticketNotFound" : "leadNotFound");
+    const ticket = await this.repositories.tickets.findById(subjectId);
+    if (!ticket) throw serviceError("NOT_FOUND", "ticketNotFound");
     const comment = await this.repositories.comments.create({
       subjectType,
       subjectId,
@@ -144,9 +112,9 @@ export class AdminInboxService {
     await this.audit.record({
       actorUserId: ctx.userId,
       action: "comment.create",
-      entityType: subjectType === "TICKET" ? "ticket" : "lead",
+      entityType: "ticket",
       entityId: subjectId,
-      organizationId: "organizationId" in exists ? exists.organizationId : null,
+      organizationId: ticket.organizationId,
     });
     return comment;
   }

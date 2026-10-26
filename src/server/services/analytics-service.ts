@@ -1,3 +1,4 @@
+import { features } from "@/config/features";
 import type { OperatingSystem, TapSource } from "@/features/analytics/schemas";
 import { addDays, eachDate, toLocalDate, zonedTimeToUtc, type IsoDate } from "@/lib/dates";
 import type { Period } from "@/lib/period";
@@ -115,7 +116,9 @@ export class AnalyticsService {
       : filter.cardId || filter.employeeId
         ? [...new Set(cardsInScope.map((c) => c.locationId).filter((id): id is string => id !== null))]
         : allLocations.map((l) => l.id);
-    const snapshots = await repos.ratingSnapshots.list({ locationIds: ratingLocationIds });
+    const snapshots = features.twogisApi
+      ? await repos.ratingSnapshots.list({ locationIds: ratingLocationIds })
+      : [];
     const history = new RatingHistory(snapshots, ctx.timeZone);
 
     const newReviews = history.newReviews(ratingLocationIds, period.from, period.to);

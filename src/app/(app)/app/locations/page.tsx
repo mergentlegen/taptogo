@@ -1,4 +1,4 @@
-import { MapPin, Star } from "lucide-react";
+import { MapPin } from "lucide-react";
 import type { Metadata, Route } from "next";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
@@ -6,6 +6,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/data/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { features } from "@/config/features";
 import { formatNumber, formatRating } from "@/lib/format";
 import { requireOrgAccess } from "@/server/auth/session";
 import { getServices } from "@/server/services";
@@ -20,10 +21,7 @@ export default async function LocationsPage() {
   const access = await requireOrgAccess("org.view");
   const ctx = orgContextFrom(access);
   const services = getServices();
-  const [locations, subscription] = await Promise.all([
-    services.locations.list(ctx),
-    services.subscription.view(ctx),
-  ]);
+  const locations = await services.locations.list(ctx);
   const t = await getTranslations();
 
   return (
@@ -45,41 +43,27 @@ export default async function LocationsPage() {
                     <p className="font-semibold">{location.name}</p>
                     <p className="text-sm text-muted-foreground">{location.address}</p>
                   </div>
-                  {location.linkedToTwogis ? (
-                    <div className="flex items-baseline gap-2">
-                      <Star className="size-4 self-center fill-chart-2 text-chart-2" aria-hidden="true" />
-                      <span className="text-2xl font-semibold">
-                        {location.rating === null ? "—" : formatRating(location.rating)}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        {t("locations.columns.reviews")}:{" "}
-                        {location.reviewCount === null ? "—" : formatNumber(location.reviewCount)}
-                      </span>
+                  <p className="text-sm text-muted-foreground">
+                    {location.linkedToTwogis ? t("locations.linked") : t("locations.notLinked")}
+                  </p>
+                  {features.twogisApi && location.linkedToTwogis && (
+                    <p className="text-sm">
+                      {t("dashboard.kpi.rating")}:{" "}
+                      {location.rating === null ? "—" : formatRating(location.rating)} ·{" "}
+                      {t("locations.columns.reviews")}:{" "}
+                      {location.reviewCount === null ? "—" : formatNumber(location.reviewCount)}
+                    </p>
+                  )}
+                  <dl className="grid grid-cols-2 gap-2 border-t pt-3 text-sm">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{t("locations.columns.taps30")}</dt>
+                      <dd className="font-medium tabular-nums">{formatNumber(location.taps30)}</dd>
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">{t("locations.notLinked")}</p>
-                  )}
-                  {/* Activity numbers are statistics: hidden when the subscription expired. */}
-                  {subscription.statsAllowed && (
-                    <dl className="grid grid-cols-3 gap-2 border-t pt-3 text-sm">
-                      <div>
-                        <dt className="text-xs text-muted-foreground">{t("locations.columns.taps30")}</dt>
-                        <dd className="font-medium tabular-nums">{formatNumber(location.taps30)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-muted-foreground">
-                          {t("locations.columns.newReviews30")}
-                        </dt>
-                        <dd className="font-medium tabular-nums">
-                          {location.newReviews30 === null ? "—" : formatNumber(location.newReviews30)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-muted-foreground">{t("locations.columns.cards")}</dt>
-                        <dd className="font-medium tabular-nums">{location.cardCount}</dd>
-                      </div>
-                    </dl>
-                  )}
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{t("locations.columns.cards")}</dt>
+                      <dd className="font-medium tabular-nums">{location.cardCount}</dd>
+                    </div>
+                  </dl>
                 </CardContent>
               </Card>
             </Link>

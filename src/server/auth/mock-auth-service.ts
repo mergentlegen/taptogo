@@ -14,6 +14,7 @@ import type {
   AcceptInvitationResult,
   AuthService,
   ClientInfo,
+  CreateAccountResult,
   Impersonation,
   InvitationPreview,
   IssuedSession,
@@ -149,6 +150,25 @@ export class MockAuthService implements AuthService {
     await repositories.users.update(user.id, { mustChangePassword: true });
     this.revokeAll(user.id);
     return password;
+  }
+
+  async createAccount(input: { email: string; name: string }): Promise<CreateAccountResult> {
+    const { repositories } = this.deps;
+    const email = input.email.trim().toLowerCase();
+    if (await repositories.users.findByEmail(email)) return { ok: false, reason: "EXISTS" };
+    const password = generateTemporaryPassword();
+    const user = await repositories.users.create({
+      email,
+      name: input.name,
+      phone: null,
+      platformRole: null,
+      status: "ACTIVE",
+      totpEnabled: false,
+      mustChangePassword: true,
+      lastLoginAt: null,
+    });
+    this.passwordHashes.set(user.id, await hashPassword(password));
+    return { ok: true, user, temporaryPassword: password };
   }
 
   async getSession(token: string | null): Promise<Session | null> {

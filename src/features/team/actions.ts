@@ -13,10 +13,11 @@ import {
 } from "./form-schemas";
 import type { OrgRole } from "./schemas";
 
-export async function inviteMemberAction(input: InviteInput): Promise<ActionResult> {
+/** Returns the invitation link for the owner to copy and send. */
+export async function inviteMemberAction(input: InviteInput): Promise<ActionResult<{ link: string }>> {
   return runOrgAction("org.team.manage", inviteSchema, input, async (ctx, data) => {
-    await getServices().team.invite(ctx, data);
-    return null;
+    const { link } = await getServices().team.invite(ctx, data);
+    return { link };
   });
 }
 

@@ -18,7 +18,7 @@ export const platformPermissions = {
   "admin.cards.status": ["ADMIN"],
   /** Read-only view of a client's cabinet. */
   "admin.impersonate": ["ADMIN"],
-  /** Work the inbox: ticket/lead status, assignee, internal comments. */
+  /** Work the inbox: ticket status, assignee, internal comments. */
   "admin.inbox": ["ADMIN"],
   "admin.staff.manage": ["ADMIN"],
   "admin.settings.manage": ["ADMIN"],

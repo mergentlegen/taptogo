@@ -3,7 +3,6 @@ import {
   Building,
   FileChartColumn,
   Gauge,
-  Inbox,
   LayoutDashboard,
   LifeBuoy,
   Link2,
@@ -16,7 +15,6 @@ import {
   UserCog,
   Users,
   UsersRound,
-  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
@@ -71,14 +69,9 @@ export const adminNavigation: { group: AdminNavGroupKey; items: AdminNavItem[] }
     ],
   },
   {
-    group: "money",
-    items: [{ key: "billing", href: "/admin/billing", icon: Wallet, permission: "admin.access" }],
-  },
-  {
     group: "inbox",
     items: [
       { key: "support", href: "/admin/support", icon: LifeBuoy, permission: "admin.access" },
-      { key: "leads", href: "/admin/leads", icon: Inbox, permission: "admin.access" },
       { key: "outbox", href: "/admin/outbox", icon: Send, permission: "admin.manage" },
     ],
   },

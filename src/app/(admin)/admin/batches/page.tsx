@@ -6,7 +6,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CreateBatchDialog } from "@/features/admin/components/batch-components";
+import { BatchActions, CreateBatchDialog } from "@/features/admin/components/batch-components";
 import { formatDate } from "@/lib/format";
 import { requirePlatformAccess } from "@/server/auth/session";
 import { can } from "@/server/permissions";
@@ -67,17 +67,14 @@ export default async function AdminBatchesPage() {
                         </Link>
                       </Button>
                       <Button asChild size="sm" variant="ghost">
-                        <a href={`/admin/batches/${b.id}/export?format=csv`} download>
+                        <a href={`/admin/batches/${b.id}/export`} download>
                           <Download data-icon="inline-start" />
-                          CSV
+                          {t("adm.batches.exportQr")}
                         </a>
                       </Button>
-                      <Button asChild size="sm" variant="ghost">
-                        <a href={`/admin/batches/${b.id}/export?format=zip`} download>
-                          <Download data-icon="inline-start" />
-                          ZIP
-                        </a>
-                      </Button>
+                      {can(actor, "admin.manage") && (
+                        <BatchActions batch={{ id: b.id, name: b.name, notes: b.notes }} redirectTo={null} />
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

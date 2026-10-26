@@ -1,10 +1,9 @@
 import "server-only";
 
-import { leadSchema } from "@/features/leads/schemas";
 import { internalCommentSchema, supportTicketSchema } from "@/features/support/schemas";
 import { notFoundError } from "@/server/i18n";
 
-import type { InternalCommentRepository, LeadRepository, SupportTicketRepository } from "../inbox";
+import type { InternalCommentRepository, SupportTicketRepository } from "../inbox";
 import { chunk, fromRow, fromRows, ok, one, readAll, rows, toRow, type DbGetter } from "./support";
 
 export function supabaseSupportTicketRepository(db: DbGetter): SupportTicketRepository {
@@ -38,36 +37,6 @@ export function supabaseSupportTicketRepository(db: DbGetter): SupportTicketRepo
         : ok(await c.from("support_tickets").select("*").eq("id", id).maybeSingle());
       if (!data) throw notFoundError("SupportTicket");
       return fromRow(supportTicketSchema, data);
-    },
-  };
-}
-
-export function supabaseLeadRepository(db: DbGetter): LeadRepository {
-  return {
-    async findById(id) {
-      const c = await db();
-      const data = ok(await c.from("leads").select("*").eq("id", id).maybeSingle());
-      return data ? fromRow(leadSchema, data) : null;
-    },
-    async list({ statuses, limit }) {
-      const c = await db();
-      let query = c.from("leads").select("*");
-      if (statuses) query = query.in("status", statuses);
-      const data = rows(await query.order("created_at", { ascending: false }).order("id").limit(limit));
-      return fromRows(leadSchema, data);
-    },
-    async create(input) {
-      const c = await db();
-      return fromRow(leadSchema, one(await c.from("leads").insert(toRow(input)).select().single()));
-    },
-    async update(id, patch) {
-      const c = await db();
-      const values = toRow(patch);
-      const data = Object.keys(values).length
-        ? ok(await c.from("leads").update(values).eq("id", id).select().maybeSingle())
-        : ok(await c.from("leads").select("*").eq("id", id).maybeSingle());
-      if (!data) throw notFoundError("Lead");
-      return fromRow(leadSchema, data);
     },
   };
 }

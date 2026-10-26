@@ -80,10 +80,8 @@ describe("CardRedirectService", () => {
     expect(await service.resolve(card.code)).toEqual({ kind: "INACTIVE" });
   });
 
-  it("keeps redirecting for an expired subscription but not for an archived client", async () => {
+  it("stops redirecting for an archived client", async () => {
     const card = await cardWith("ACTIVE");
-    const subscription = await repos.subscriptions.findByOrganization(card.organizationId ?? "");
-    await repos.subscriptions.upsert({ ...subscription!, paidUntil: "2020-01-01", status: "EXPIRED" });
     expect((await service.resolve(card.code)).kind).toBe("REDIRECT");
 
     await repos.organizations.update(card.organizationId ?? "", { status: "ARCHIVED" });

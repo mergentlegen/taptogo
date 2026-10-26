@@ -8,9 +8,9 @@ import { TimeSeriesChart } from "@/components/charts/time-series-chart";
 import { TopList } from "@/components/charts/top-list";
 import { StatCard } from "@/components/data/stat-card";
 import { PageHeader } from "@/components/layout/page-header";
-import { StatsGate } from "@/components/subscription/stats-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { features } from "@/config/features";
 import { TwogisChangeDialog } from "@/features/locations/components/twogis-change-dialog";
 import { formatNumber, formatRating, formatRatingDelta } from "@/lib/format";
 import { requireOrgAccess } from "@/server/auth/session";
@@ -30,7 +30,7 @@ export default async function LocationPage({ params }: PageProps<"/app/locations
   const detail = await services.locations.detail(ctx, id);
   if (!detail) notFound();
 
-  const [subscription, t] = await Promise.all([services.subscription.view(ctx), getTranslations()]);
+  const t = await getTranslations();
   const { location, history, totals } = detail;
   const hasRatings = history.some((h) => h.rating !== null);
   const latest = history.at(-1);
@@ -61,108 +61,110 @@ export default async function LocationPage({ params }: PageProps<"/app/locations
         }
       />
 
-      <StatsGate subscription={subscription}>
-        <div className="grid gap-4">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label={t("dashboard.kpi.rating")}
-              value={
-                latest?.rating === null || latest?.rating === undefined ? "—" : formatRating(latest.rating)
-              }
-            />
-            <StatCard
-              label={t("locations.detail.ratingChange")}
-              value={totals.ratingChange === null ? "—" : formatRatingDelta(totals.ratingChange)}
-            />
-            <StatCard
-              label={t("locations.detail.newReviews")}
-              value={totals.newReviews === null ? "—" : formatNumber(totals.newReviews)}
-            />
-            <StatCard label={t("locations.detail.taps")} value={formatNumber(totals.taps)} />
-          </div>
-
-          {hasRatings ? (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t("locations.detail.ratingTitle")}</CardTitle>
-                  <CardDescription>{t("locations.detail.period")}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <TimeSeriesChart
-                    kind="line"
-                    label={t("dashboard.kpi.rating")}
-                    color="var(--chart-2)"
-                    valueFormat="rating"
-                    tightDomain
-                    height={200}
-                    data={history.map((h) => ({ date: h.date, value: h.rating }))}
-                    ariaLabel={t("locations.detail.ratingTitle")}
-                  />
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t("locations.detail.reviewsTitle")}</CardTitle>
-                  <CardDescription>{t("locations.detail.period")}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <TimeSeriesChart
-                    kind="line"
-                    label={t("dashboard.charts.reviews")}
-                    color="var(--chart-2)"
-                    valueFormat="number"
-                    tightDomain
-                    height={200}
-                    data={history.map((h) => ({ date: h.date, value: h.reviewCount }))}
-                    ariaLabel={t("locations.detail.reviewsTitle")}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-          ) : (
-            <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-              {t("locations.detail.noHistory")}
-            </p>
+      <div className="grid gap-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {features.twogisApi && (
+            <>
+              <StatCard
+                label={t("dashboard.kpi.rating")}
+                value={
+                  latest?.rating === null || latest?.rating === undefined ? "—" : formatRating(latest.rating)
+                }
+              />
+              <StatCard
+                label={t("locations.detail.ratingChange")}
+                value={totals.ratingChange === null ? "—" : formatRatingDelta(totals.ratingChange)}
+              />
+              <StatCard
+                label={t("locations.detail.newReviews")}
+                value={totals.newReviews === null ? "—" : formatNumber(totals.newReviews)}
+              />
+            </>
           )}
+          <StatCard label={t("locations.detail.taps")} value={formatNumber(totals.taps)} />
+        </div>
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        {!features.twogisApi ? null : hasRatings ? (
+          <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>{t("locations.detail.tapsTitle")}</CardTitle>
+                <CardTitle>{t("locations.detail.ratingTitle")}</CardTitle>
                 <CardDescription>{t("locations.detail.period")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <TimeSeriesChart
-                  kind="bar"
-                  label={t("dashboard.charts.taps")}
-                  color="var(--chart-1)"
-                  valueFormat="number"
-                  data={history.map((h) => ({ date: h.date, value: h.taps }))}
-                  ariaLabel={t("locations.detail.tapsTitle")}
+                  kind="line"
+                  label={t("dashboard.kpi.rating")}
+                  color="var(--chart-2)"
+                  valueFormat="rating"
+                  tightDomain
+                  height={200}
+                  data={history.map((h) => ({ date: h.date, value: h.rating }))}
+                  ariaLabel={t("locations.detail.ratingTitle")}
                 />
               </CardContent>
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle>{t("locations.detail.cards")}</CardTitle>
+                <CardTitle>{t("locations.detail.reviewsTitle")}</CardTitle>
+                <CardDescription>{t("locations.detail.period")}</CardDescription>
               </CardHeader>
               <CardContent>
-                <TopList
-                  emptyText={t("locations.detail.noCards")}
-                  items={detail.cards.map((c) => ({
-                    id: c.id,
-                    label: c.label,
-                    sublabel: t(`cards.statuses.${c.status}`),
-                    value: c.taps,
-                    href: `/app/cards/${c.id}` as Route,
-                  }))}
+                <TimeSeriesChart
+                  kind="line"
+                  label={t("dashboard.charts.reviews")}
+                  color="var(--chart-2)"
+                  valueFormat="number"
+                  tightDomain
+                  height={200}
+                  data={history.map((h) => ({ date: h.date, value: h.reviewCount }))}
+                  ariaLabel={t("locations.detail.reviewsTitle")}
                 />
               </CardContent>
             </Card>
           </div>
+        ) : (
+          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+            {t("locations.detail.noHistory")}
+          </p>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("locations.detail.tapsTitle")}</CardTitle>
+              <CardDescription>{t("locations.detail.period")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TimeSeriesChart
+                kind="bar"
+                label={t("dashboard.charts.taps")}
+                color="var(--chart-1)"
+                valueFormat="number"
+                data={history.map((h) => ({ date: h.date, value: h.taps }))}
+                ariaLabel={t("locations.detail.tapsTitle")}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("locations.detail.cards")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TopList
+                emptyText={t("locations.detail.noCards")}
+                items={detail.cards.map((c) => ({
+                  id: c.id,
+                  label: c.label,
+                  sublabel: t(`cards.statuses.${c.status}`),
+                  value: c.taps,
+                  href: `/app/cards/${c.id}` as Route,
+                }))}
+              />
+            </CardContent>
+          </Card>
         </div>
-      </StatsGate>
+      </div>
     </>
   );
 }

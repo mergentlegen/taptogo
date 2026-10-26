@@ -22,7 +22,10 @@ test.describe("dashboard", () => {
     await signIn(page, accounts.owner);
 
     await expect(page.getByTestId("kpi-taps")).toContainText(/\d/);
-    await expect(page.getByTestId("kpi-conversion")).toContainText("Конверсия ≈");
+    // Rating, reviews and conversion need the 2GIS API, which is off: no such figures at all.
+    await expect(page.getByTestId("kpi-rating")).toHaveCount(0);
+    await expect(page.getByTestId("kpi-reviews")).toHaveCount(0);
+    await expect(page.getByTestId("kpi-conversion")).toHaveCount(0);
     await expect(page.getByText("Касания по дням")).toBeVisible();
     await expect(page.getByText("Когда прикладывают карточки")).toBeVisible();
     const all = await page.getByTestId("kpi-taps").locator("p").nth(1).textContent();
@@ -33,16 +36,15 @@ test.describe("dashboard", () => {
     expect(errors).toEqual([]);
   });
 
-  test("hides statistics when the subscription expired, but nothing else", async ({ page }) => {
+  test("never asks for a subscription: statistics are always available", async ({ page }) => {
     await signIn(page, "owner@arubeauty.kz");
-    await expect(page.getByTestId("stats-locked")).toBeVisible();
-    await expect(page.getByText("Подписка истекла")).toBeVisible();
-    await expect(page.getByTestId("kpi-taps")).toHaveCount(0);
+    await expect(page.getByTestId("stats-locked")).toHaveCount(0);
+    await expect(page.getByText("Подписка истекла")).toHaveCount(0);
+    await expect(page.getByTestId("kpi-taps")).toBeVisible();
 
-    // Card management still works for an expired client.
-    await page.goto("/app/cards");
-    await expect(page.getByRole("link", { name: /Ресепшн/ })).toBeVisible();
-    expect((await page.request.get("/app/reports/export?format=csv")).status()).toBe(403);
+    expect((await page.request.get("/app/reports/export?format=csv")).status()).toBe(200);
+    expect((await page.goto("/app/settings?tab=subscription"))?.status()).toBe(200);
+    await expect(page.getByRole("tab", { name: "Подписка" })).toHaveCount(0);
   });
 });
 
@@ -232,14 +234,19 @@ test.describe("other sections", () => {
     expect(xlsx.headers()["content-type"]).toContain("spreadsheetml");
   });
 
-  test("the owner invites a teammate but cannot remove the last owner", async ({ page, isMobile }) => {
+  test("the owner gets an invitation link to copy, but cannot remove the last owner", async ({
+    page,
+    isMobile,
+  }) => {
     test.skip(isMobile, "mutates shared demo data; runs once");
     await signIn(page, accounts.owner);
     await page.goto("/app/team");
 
     await page.getByRole("button", { name: "Пригласить" }).click();
     await page.getByRole("dialog").getByLabel("Email").fill("new.barista@coffeepoint.kz");
-    await page.getByRole("dialog").getByRole("button", { name: "Отправить приглашение" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Создать ссылку" }).click();
+    await expect(page.getByTestId("invitation-link")).toContainText("/invite/");
+    await page.getByRole("dialog").getByRole("button", { name: "Готово" }).click();
     await expect(
       page.getByTestId("team-invitation").filter({ hasText: "new.barista@coffeepoint.kz" }),
     ).toBeVisible();

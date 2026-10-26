@@ -1,4 +1,3 @@
-import type { Lead, LeadStatus } from "@/features/leads/schemas";
 import type {
   CommentSubject,
   InternalComment,
@@ -18,14 +17,6 @@ export interface SupportTicketRepository {
   }): Promise<SupportTicket[]>;
   create(input: NewEntity<SupportTicket, "updatedAt">): Promise<SupportTicket>;
   update(id: string, patch: Partial<Pick<SupportTicket, "status" | "assigneeId">>): Promise<SupportTicket>;
-}
-
-export interface LeadRepository {
-  findById(id: string): Promise<Lead | null>;
-  /** Newest first, at most `limit` (leads accumulate forever). */
-  list(filter: { statuses?: LeadStatus[]; limit: number }): Promise<Lead[]>;
-  create(input: NewEntity<Lead>): Promise<Lead>;
-  update(id: string, patch: Partial<Pick<Lead, "status" | "assigneeId">>): Promise<Lead>;
 }
 
 export interface InternalCommentRepository {

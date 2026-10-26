@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("title") };
 }
 
-const FAQ = [1, 2, 3, 4, 5, 6, 7] as const;
+const FAQ = [1, 2, 3, 4, 5, 6] as const;
 
 export default async function SupportPage() {
   const access = await requireOrgAccess("org.support");

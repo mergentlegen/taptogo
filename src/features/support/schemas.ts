@@ -20,8 +20,8 @@ export const supportTicketSchema = z.object({
 });
 export type SupportTicket = z.infer<typeof supportTicketSchema>;
 
-/** Staff-only notes on tickets and leads; never shown to clients. */
-export const commentSubjects = ["TICKET", "LEAD"] as const;
+/** Staff-only notes on tickets; never shown to clients. */
+export const commentSubjects = ["TICKET"] as const;
 export const commentSubjectSchema = z.enum(commentSubjects);
 export type CommentSubject = z.infer<typeof commentSubjectSchema>;
 

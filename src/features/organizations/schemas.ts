@@ -1,10 +1,8 @@
 import { z } from "zod";
 
 import {
-  binSchema,
   emailSchema,
   idSchema,
-  optionalTextSchema,
   phoneSchema,
   textSchema,
   timestampSchema,
@@ -18,11 +16,10 @@ export type OrganizationStatus = z.infer<typeof organizationStatusSchema>;
 export const organizationSchema = z.object({
   id: idSchema,
   name: textSchema(120),
-  legalName: optionalTextSchema(200),
-  bin: binSchema.nullable(),
-  contactName: textSchema(120),
-  contactPhone: phoneSchema,
-  contactEmail: emailSchema,
+  /** The contact person is optional: the title (and the address of a location) is all that is needed. */
+  contactName: textSchema(120).nullable(),
+  contactPhone: phoneSchema.nullable(),
+  contactEmail: emailSchema.nullable(),
   timezone: timeZoneSchema,
   status: organizationStatusSchema,
   createdAt: timestampSchema,

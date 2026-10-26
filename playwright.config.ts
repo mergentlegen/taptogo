@@ -29,6 +29,8 @@ export default defineConfig({
     timeout: 300_000,
     reuseExistingServer: !process.env.CI,
     env: {
+      // Always the demo data, whatever DATA_SOURCE says in .env.local.
+      DATA_SOURCE: "mock",
       // Test-only value; production secrets come from the deployment environment.
       SESSION_SECRET: "e2e-only-session-secret-0123456789abcdef",
     },

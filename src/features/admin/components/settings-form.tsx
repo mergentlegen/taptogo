@@ -11,7 +11,6 @@ import { FormAlert } from "@/components/forms/form-alert";
 import { FormField } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { PlatformSettings } from "@/features/platform/schemas";
 
@@ -30,8 +29,6 @@ export function PlatformSettingsForm({ settings }: { settings: PlatformSettings 
     resolver: zodResolver(platformSettingsFormSchema),
     defaultValues: {
       domains: settings.allowedRedirectDomains.join("\n"),
-      graceDays: settings.graceDays,
-      plans: settings.plans,
     },
   });
 
@@ -55,38 +52,6 @@ export function PlatformSettingsForm({ settings }: { settings: PlatformSettings 
           <FormField label={t("adm.settings.domains")} hint={t("adm.settings.domainsHint")}>
             <Textarea rows={7} className="font-mono" {...form.register("domains")} />
           </FormField>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("adm.settings.grace")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FormField
-            label={t("adm.settings.grace")}
-            error={form.formState.errors.graceDays?.message}
-            className="max-w-40"
-          >
-            <Input type="number" min={0} max={60} {...form.register("graceDays")} />
-          </FormField>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("adm.settings.plans")}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          {settings.plans.map((plan, index) => (
-            <div key={plan.plan} className="grid grid-cols-[8rem_1fr_1fr] items-end gap-3">
-              <p className="pb-2 font-medium">{t(`subscription.plans.${plan.plan}`)}</p>
-              <FormField label={t("adm.settings.cardLimit")}>
-                <Input type="number" min={1} {...form.register(`plans.${index}.cardLimit`)} />
-              </FormField>
-              <FormField label={t("adm.settings.price")}>
-                <Input type="number" min={0} {...form.register(`plans.${index}.monthlyPriceKzt`)} />
-              </FormField>
-            </div>
-          ))}
         </CardContent>
       </Card>
       <div>

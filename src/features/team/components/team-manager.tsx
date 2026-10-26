@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import type { z } from "zod";
 
 import { ConfirmDialog } from "@/components/data/confirm-dialog";
+import { CopyField } from "@/components/forms/copy-field";
 import { FormAlert } from "@/components/forms/form-alert";
 import { FormField } from "@/components/forms/form-field";
 import { Badge } from "@/components/ui/badge";
@@ -176,6 +177,7 @@ function InviteDialog() {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
   const form = useForm<z.input<typeof inviteSchema>, unknown, z.output<typeof inviteSchema>>({
     resolver: zodResolver(inviteSchema),
     defaultValues: { email: "", role: "MANAGER" },
@@ -187,9 +189,8 @@ function InviteDialog() {
       setFormError(null);
       const result = await inviteMemberAction(form.getValues());
       if (result.ok) {
-        toast.success(t("team.invited"));
+        setLink(result.data.link);
         form.reset();
-        setOpen(false);
       } else {
         setFormError(applyActionError(result.error, form.setError, ["email"]));
       }
@@ -197,7 +198,13 @@ function InviteDialog() {
   );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setLink(null);
+      }}
+    >
       <DialogTrigger asChild>
         <Button>
           <UserPlus data-icon="inline-start" />
@@ -207,42 +214,51 @@ function InviteDialog() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("team.inviteTitle")}</DialogTitle>
-          <DialogDescription>{t("team.inviteText")}</DialogDescription>
+          <DialogDescription>{link ? t("team.linkHint") : t("team.inviteText")}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={onSubmit} noValidate className="grid gap-4">
-          {formError && <FormAlert>{formError}</FormAlert>}
-          <FormField label={t("team.email")} error={form.formState.errors.email?.message}>
-            <Input type="email" autoComplete="off" {...form.register("email")} />
-          </FormField>
-          <Controller
-            control={form.control}
-            name="role"
-            render={({ field }) => (
-              <FormField label={t("team.role")} hint={t(`team.roleHints.${role}`)}>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {orgRoles.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {t(`roles.${r}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-            )}
-          />
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              {t("team.cancel")}
-            </Button>
-            <Button type="submit" disabled={pending}>
-              {t("team.send")}
-            </Button>
-          </DialogFooter>
-        </form>
+        {link ? (
+          <div className="grid gap-4">
+            <CopyField label={t("team.linkLabel")} value={link} testId="invitation-link" />
+            <DialogFooter>
+              <Button onClick={() => setOpen(false)}>{t("team.done")}</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} noValidate className="grid gap-4">
+            {formError && <FormAlert>{formError}</FormAlert>}
+            <FormField label={t("team.email")} error={form.formState.errors.email?.message}>
+              <Input type="email" autoComplete="off" {...form.register("email")} />
+            </FormField>
+            <Controller
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormField label={t("team.role")} hint={t(`team.roleHints.${role}`)}>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {orgRoles.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {t(`roles.${r}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+              )}
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                {t("team.cancel")}
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {t("team.createLink")}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

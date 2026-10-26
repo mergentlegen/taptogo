@@ -40,6 +40,28 @@ export function mockCardBatchRepository({ db, clock, newId }: MockContext): Card
       db.cards.push(...cards);
       return { batch: clone(batch), cards: clone(cards) };
     },
+    async update(id, patch) {
+      return clone(
+        applyPatch(
+          requireRow(
+            db.batches.find((b) => b.id === id),
+            "CardBatch",
+          ),
+          patch,
+        ),
+      );
+    },
+    async delete(id) {
+      const index = db.batches.findIndex((b) => b.id === id);
+      if (index === -1) return "NOT_FOUND";
+      const cards = db.cards.filter((c) => c.batchId === id);
+      const hasHistory = (cardId: string) =>
+        db.tapEvents.some((e) => e.cardId === cardId) || db.dailyStats.some((s) => s.cardId === cardId);
+      if (cards.some((c) => c.status !== "UNASSIGNED" || hasHistory(c.id))) return "IN_USE";
+      db.cards = db.cards.filter((c) => c.batchId !== id);
+      db.batches.splice(index, 1);
+      return "OK";
+    },
     async progress() {
       const result: Record<string, { assigned: number; written: number; locked: number }> = {};
       for (const card of db.cards) {
@@ -146,12 +168,6 @@ export function mockCardRepository({ db }: MockContext): CardRepository {
       if (rows.some((row) => !row)) return { ok: false, reason: "NOT_FOUND" };
       const cards = rows.filter((row): row is Card => row !== undefined);
       if (cards.some((c) => c.status !== "UNASSIGNED")) return { ok: false, reason: "NOT_UNASSIGNED" };
-      if (input.cardLimit !== null) {
-        const held = db.cards.filter(
-          (c) => c.organizationId === input.organizationId && c.status !== "REVOKED",
-        ).length;
-        if (held + cards.length > input.cardLimit) return { ok: false, reason: "LIMIT_EXCEEDED" };
-      }
       for (const card of cards) {
         applyPatch(card, {
           organizationId: input.organizationId,
