@@ -1,4 +1,3 @@
-import ExcelJS from "exceljs";
 import { createTranslator } from "next-intl";
 
 import { defaultLocale } from "@/i18n/config";
@@ -6,6 +5,7 @@ import messages from "@/i18n/messages/ru.json";
 import { sanitizeCell, toCsv, type CellValue } from "@/lib/csv";
 import { addDays, eachDate } from "@/lib/dates";
 import type { Period } from "@/lib/period";
+import { createXlsx } from "@/lib/xlsx";
 import type { Repositories, StatDimension } from "@/server/repositories";
 import { forOrganization } from "@/server/repositories/tenant";
 import type { AuditService } from "@/server/services/audit-service";
@@ -177,20 +177,15 @@ export class ReportService {
       return { filename, contentType: "text/csv; charset=utf-8", body: toCsv(headers, body) };
     }
 
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "TapToGo";
-    const sheet = workbook.addWorksheet(t(`dimensions.${report.dimension}`));
-    sheet.addRow(headers).font = { bold: true };
-    for (const row of body) sheet.addRow(row.map(sanitizeCell));
-    sheet.columns.forEach((column) => {
-      column.width = 18;
+    const buffer = await createXlsx({
+      sheet: t(`dimensions.${report.dimension}`),
+      headers,
+      rows: body.map((row) => row.map(sanitizeCell)),
     });
-    sheet.views = [{ state: "frozen", ySplit: 1 }];
-    const buffer = await workbook.xlsx.writeBuffer();
     return {
       filename,
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      body: new Uint8Array(buffer),
+      body: buffer,
     };
   }
 }

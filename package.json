@@ -26,19 +26,24 @@
     "format:check": "prettier --check .",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "check:supabase": "node --env-file=.env.local scripts/check-supabase.mjs",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:size": "wrangler deploy --dry-run --outdir .wrangler/dry",
+    "cf:secrets": "node --env-file=.env.local scripts/cf-secrets.mjs",
+    "cf:build:docker": "node scripts/cf-build.mjs",
+    "cf:preview": "node scripts/cf-build.mjs && wrangler dev",
+    "cf:deploy": "node scripts/cf-build.mjs && wrangler deploy",
     "create-admin": "node --env-file=.env.local scripts/create-admin.mjs"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",
     "@hookform/resolvers": "^5.9.1",
+    "@opennextjs/cloudflare": "^1.20.13",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "@tanstack/react-table": "^9.3.1",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "date-fns": "^4.4.0",
-    "exceljs": "^4.4.0",
-    "jszip": "^3.10.2",
     "lucide-react": "^1.57.0",
     "next": "16.4.1",
     "next-intl": "^4.14.9",
@@ -66,11 +71,13 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.1",
+    "jszip": "^3.10.2",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "wrangler": "^4.152.0"
   },
   "packageManager": "pnpm@12.14.0"
 }

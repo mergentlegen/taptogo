@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "taptogo",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-15",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "taptogo",
+    },
+  ],
+  // Shrinks the server code to fit the free plan's 3 MiB limit (about 2.6 MiB with it, 3.0 without).
+  "minify": true,
+  "observability": {
+    "enabled": true,
+  },
+  // Public settings. Secrets (SUPABASE_SECRET_KEY, CRON_SECRET) are NOT stored here:
+  // they are set once with `pnpm wrangler secret put <NAME>`.
+  "vars": {
+    "DATA_SOURCE": "supabase",
+    "SUPABASE_URL": "https://zvenrqstvaokomvmikdt.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_oHlyE7MFcW5nIJd4roLaEQ_MnpGOJxP",
+    "DEFAULT_TIMEZONE": "Asia/Almaty",
+    // The public address of the app (card links are built from it). Set it to the
+    // address Cloudflare prints after the first deploy, or to your own domain.
+    "APP_URL": "https://taptogo.taptogo.workers.dev",
+  },
+}

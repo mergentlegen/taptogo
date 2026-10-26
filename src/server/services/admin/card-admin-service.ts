@@ -1,8 +1,7 @@
-import JSZip from "jszip";
-
 import { generateUniqueCardCodes } from "@/features/cards/code";
 import type { Card, CardStatus, CardType } from "@/features/cards/schemas";
 import { toCsv } from "@/lib/csv";
+import { createZip, type ZipEntry } from "@/lib/zip";
 import { AppError } from "@/server/errors";
 import { serverText, serviceError } from "@/server/i18n";
 import type { CardFilter, Repositories } from "@/server/repositories";
@@ -154,23 +153,26 @@ export class AdminCardService {
   /** ZIP with the CSV and one SVG QR per card, ready for printing. */
   async exportBatchZip(ctx: AdminContext, batchId: string) {
     const detail = await this.requireBatch(batchId);
-    const zip = new JSZip();
-    zip.file(
-      "codes.csv",
-      toCsv(
-        ["number", "code", "url", "qr_url"],
-        detail.cards.map((c) => [c.number, c.code, c.url, c.qrUrl]),
-        ",",
-      ),
-    );
-    const folder = zip.folder("qr");
+    const files: ZipEntry[] = [
+      {
+        name: "codes.csv",
+        data: toCsv(
+          ["number", "code", "url", "qr_url"],
+          detail.cards.map((c) => [c.number, c.code, c.url, c.qrUrl]),
+          ",",
+        ),
+      },
+    ];
     for (const card of detail.cards) {
-      folder?.file(`${String(card.number).padStart(4, "0")}-${card.code}.svg`, await this.qrSvg(card.qrUrl));
+      files.push({
+        name: `qr/${String(card.number).padStart(4, "0")}-${card.code}.svg`,
+        data: await this.qrSvg(card.qrUrl),
+      });
     }
     await this.recordExport(ctx, batchId, "zip");
     return {
       filename: `batch-${fileSlug(detail.batch)}.zip`,
-      body: await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }),
+      body: await createZip(files),
     };
   }
 

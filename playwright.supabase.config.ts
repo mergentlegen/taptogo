@@ -1,7 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 3200;
-const baseURL = `http://localhost:${PORT}`;
+// E2E_BASE_URL points the same specs at an already running server (e.g. `wrangler dev` or the
+// deployed site) instead of starting a local production build.
+const external = process.env.E2E_BASE_URL;
+const baseURL = external ?? `http://localhost:${PORT}`;
 
 /**
  * End-to-end run against the REAL Supabase project from .env.local (DATA_SOURCE=supabase),
@@ -23,15 +26,17 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: `pnpm build && pnpm start --port ${PORT}`,
-    url: baseURL,
-    timeout: 300_000,
-    reuseExistingServer: false,
-    env: {
-      // Overrides DATA_SOURCE=mock from .env.local; the Supabase keys still come from there.
-      DATA_SOURCE: "supabase",
-      APP_URL: baseURL,
-    },
-  },
+  webServer: external
+    ? undefined
+    : {
+        command: `pnpm build && pnpm start --port ${PORT}`,
+        url: baseURL,
+        timeout: 300_000,
+        reuseExistingServer: false,
+        env: {
+          // Overrides DATA_SOURCE=mock from .env.local; the Supabase keys still come from there.
+          DATA_SOURCE: "supabase",
+          APP_URL: baseURL,
+        },
+      },
 });

@@ -7,6 +7,7 @@ NFC-карточки и QR-стикеры, которые ведут госте�
 ## Документация
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — слои, где что лежит, как проходит запрос, как добавить фичу.
+- [docs/DEPLOY_CLOUDFLARE.md](docs/DEPLOY_CLOUDFLARE.md) — выкладка на бесплатный Cloudflare Workers: команды, секреты, лимиты
 - [docs/SUPABASE_MIGRATION.md](docs/SUPABASE_MIGRATION.md) — пошаговый переход на Supabase и 2ГИС API. Почтовый сервис (Resend) в план не входит: письма отправляет администратор вручную.
 - [docs/supabase/schema.sql](docs/supabase/schema.sql) — черновик схемы БД с RLS (не выполнять как есть).
 

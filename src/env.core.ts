@@ -4,11 +4,9 @@
  */
 import { z } from "zod";
 
-/**
- * Only for local development. Production refuses to start without a real
- * SESSION_SECRET (see the refinement below).
- */
-export const DEV_SESSION_SECRET = "dev-only-insecure-session-secret-do-not-use-in-prod";
+import { DEV_SESSION_SECRET } from "./dev-session-secret";
+
+export { DEV_SESSION_SECRET };
 
 /** `KEY=` in a .env file arrives as "", which is the same as not setting the variable. */
 const optionalString = <T extends z.ZodType>(schema: T) =>

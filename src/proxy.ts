@@ -1,17 +1,27 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { parseEnv, type Env } from "@/env.core";
+import { DEV_SESSION_SECRET } from "@/dev-session-secret";
 import { buildContentSecurityPolicy } from "@/lib/security/csp";
 import { SESSION_COOKIE } from "@/server/auth/cookies";
 import { verifySessionToken } from "@/server/auth/session-token";
 
 const PROTECTED_PATHS = [/^\/app(\/|$)/, /^\/admin(\/|$)/];
 
-let cachedEnv: Env | undefined;
-function getEnv(): Env {
-  cachedEnv ??= parseEnv(process.env);
-  return cachedEnv;
+/**
+ * Plain reads instead of the validated environment: this file is bundled separately for
+ * the middleware runtime, and the schema library would double its size. Full validation
+ * happens in the server code (src/env.core.ts), which a misconfigured deployment cannot get past.
+ */
+function readEnv() {
+  const env = process.env;
+  return {
+    dataSource: env.DATA_SOURCE === "supabase" ? ("supabase" as const) : ("mock" as const),
+    sessionSecret: env.SESSION_SECRET || DEV_SESSION_SECRET,
+    supabaseUrl: env.SUPABASE_URL ?? "",
+    supabaseKey: env.SUPABASE_PUBLISHABLE_KEY ?? "",
+    isProduction: env.NODE_ENV === "production",
+  };
 }
 
 type PendingCookie = { name: string; value: string; options: Record<string, unknown> };
@@ -24,8 +34,8 @@ type PendingCookie = { name: string; value: string; options: Record<string, unkn
  * checked on the server in every page and action.
  */
 async function hasSupabaseSession(request: NextRequest, pending: PendingCookie[]): Promise<boolean> {
-  const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = getEnv();
-  const supabase = createServerClient(SUPABASE_URL!, SUPABASE_PUBLISHABLE_KEY!, {
+  const { supabaseUrl, supabaseKey } = readEnv();
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (toSet) => {
@@ -46,7 +56,7 @@ function withCookies<T extends NextResponse>(response: T, pending: PendingCookie
     response.cookies.set(name, value, {
       ...options,
       httpOnly: true,
-      secure: getEnv().isProduction,
+      secure: readEnv().isProduction,
       sameSite: "lax",
     });
   }
@@ -62,11 +72,11 @@ function withCookies<T extends NextResponse>(response: T, pending: PendingCookie
  */
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  const env = getEnv();
+  const env = readEnv();
   const isProtected = PROTECTED_PATHS.some((pattern) => pattern.test(pathname));
   const pending: PendingCookie[] = [];
 
-  if (env.DATA_SOURCE === "supabase") {
+  if (env.dataSource === "supabase") {
     // Visitors without any Supabase cookie have nothing to refresh: skip the work.
     const hasCookie = request.cookies.getAll().some((cookie) => cookie.name.startsWith("sb-"));
     const signedIn = hasCookie ? await hasSupabaseSession(request, pending) : false;
@@ -77,7 +87,7 @@ export async function proxy(request: NextRequest) {
     }
   } else if (isProtected) {
     const token = request.cookies.get(SESSION_COOKIE)?.value;
-    const valid = token ? await verifySessionToken(token, env.SESSION_SECRET) : null;
+    const valid = token ? await verifySessionToken(token, env.sessionSecret) : null;
     if (!valid) {
       const login = new URL("/login", request.url);
       login.searchParams.set("next", `${pathname}${search}`);
