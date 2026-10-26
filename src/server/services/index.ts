@@ -1,6 +1,5 @@
 import "server-only";
 
-import { getEnv } from "@/env";
 import { getContainer, type Container } from "@/server/container";
 import { cardUrl, qrSvg } from "@/server/qr";
 import { processSingleton } from "@/server/singleton";
@@ -12,6 +11,7 @@ import { AdminCardService } from "./admin/card-admin-service";
 import { AdminClientService } from "./admin/client-service";
 import { AdminInboxService } from "./admin/inbox-service";
 import { AdminIntegrationService } from "./admin/integration-service";
+import { AdminOutboxService } from "./admin/outbox-service";
 import { AdminOverviewService } from "./admin/overview-service";
 import { AdminSettingsService } from "./admin/settings-service";
 import { AdminStaffService } from "./admin/staff-service";
@@ -38,16 +38,10 @@ export function createServices(container: Container) {
     employees: new EmployeeService(repositories, audit),
     reports: new ReportService(repositories, audit),
     team,
-    account: new AccountService(repositories, container.auth, container.storage, audit),
+    account: new AccountService(repositories, container.auth, audit),
     support: new SupportService(repositories, audit),
     // Visitors of the landing page are anonymous, hence the system repositories.
-    leads: new LeadService(
-      container.systemRepositories,
-      container.rateLimiter,
-      container.email,
-      container.systemAudit,
-      () => getEnv().APP_URL,
-    ),
+    leads: new LeadService(container.systemRepositories, container.rateLimiter, container.systemAudit),
     admin: {
       overview: new AdminOverviewService(repositories, clock),
       clients: new AdminClientService(repositories, container.reviews, team, container.auth, audit, clock),
@@ -56,6 +50,7 @@ export function createServices(container: Container) {
       billing: new AdminBillingService(repositories, audit, clock),
       integrations: new AdminIntegrationService(repositories, container.reviews, audit, clock),
       inbox: new AdminInboxService(repositories, audit),
+      outbox: new AdminOutboxService(container.outbox, audit),
       staff: new AdminStaffService(repositories, container.auth, audit),
       audit: new AdminAuditService(repositories),
       settings: new AdminSettingsService(repositories, audit),

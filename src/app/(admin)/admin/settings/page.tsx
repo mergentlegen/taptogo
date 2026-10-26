@@ -11,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("title") };
 }
 
-/** SUPER_ADMIN only. */
+/** Administrators only. */
 export default async function AdminSettingsPage() {
   await requirePlatformAccess("admin.settings.manage");
   const [settings, t] = await Promise.all([

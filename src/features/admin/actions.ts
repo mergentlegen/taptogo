@@ -8,7 +8,6 @@ import type { TargetUrlCheck } from "@/features/targets/url-policy";
 import type { ActionResult } from "@/server/actions";
 import { runAdminAction } from "@/server/admin-action";
 import { authorizePlatformAction } from "@/server/auth/session";
-import { serviceError } from "@/server/i18n";
 import type { FirmPreview } from "@/server/providers/reviews/types";
 import { getServices } from "@/server/services";
 
@@ -25,8 +24,10 @@ import {
   addLocationSchema,
   createClientSchema,
   inviteToClientSchema,
+  markSentSchema,
   resolveTwogisSchema,
   setClientStatusSchema,
+  temporaryPasswordSchema,
   updateClientSchema,
   type CreateClientInput,
 } from "./client-schemas";
@@ -38,7 +39,6 @@ import {
   impersonateSchema,
   platformSettingsFormSchema,
   recordPaymentSchema,
-  setStaffRoleSchema,
   setStaffStatusSchema,
   setTargetVerifiedSchema,
   syncLocationSchema,
@@ -56,12 +56,10 @@ const admin = () => getServices().admin;
 
 // ── Clients ────────────────────────────────────────────────────────────────
 
-export async function createClientAction(
-  input: CreateClientInput,
-): Promise<ActionResult<{ id: string; inviteSent: boolean }>> {
+export async function createClientAction(input: CreateClientInput): Promise<ActionResult<{ id: string }>> {
   return runAdminAction("admin.manage", createClientSchema, input, async (ctx, data) => {
-    const { organization, inviteSent } = await admin().clients.create(ctx, data);
-    return { id: organization.id, inviteSent };
+    const organization = await admin().clients.create(ctx, data);
+    return { id: organization.id };
   });
 }
 
@@ -100,11 +98,33 @@ export async function inviteToClientAction(
     inviteToClientSchema,
     input,
     async (ctx, { organizationId, ...invite }) => {
-      const { emailSent } = await admin().clients.invite(ctx, organizationId, invite);
-      if (!emailSent) throw serviceError("INTERNAL", "invitationEmailFailed");
+      await admin().clients.invite(ctx, organizationId, invite);
       return null;
     },
   );
+}
+
+/** Shown once on the admin's screen; the server keeps only the hash. */
+export async function issueTemporaryPasswordAction(
+  input: z.input<typeof temporaryPasswordSchema>,
+): Promise<ActionResult<{ password: string }>> {
+  return runAdminAction(
+    "admin.manage",
+    temporaryPasswordSchema,
+    input,
+    async (ctx, { organizationId, userId }) => {
+      const password = await admin().clients.issueTemporaryPassword(ctx, organizationId, userId);
+      return { password };
+    },
+  );
+}
+
+/** The admin sends the queued message by hand, then confirms it here. */
+export async function markOutboxSentAction(input: { id: string }): Promise<ActionResult> {
+  return runAdminAction("admin.manage", markSentSchema, input, async (ctx, { id }) => {
+    await admin().outbox.markSent(ctx, id);
+    return null;
+  });
 }
 
 export async function addLocationAction(input: z.input<typeof addLocationSchema>): Promise<ActionResult> {
@@ -286,13 +306,6 @@ export async function addCommentAction(input: z.input<typeof addCommentSchema>):
 export async function createStaffAction(input: CreateStaffInput): Promise<ActionResult> {
   return runAdminAction("admin.staff.manage", createStaffSchema, input, async (ctx, data) => {
     await admin().staff.create(ctx, data);
-    return null;
-  });
-}
-
-export async function setStaffRoleAction(input: z.input<typeof setStaffRoleSchema>): Promise<ActionResult> {
-  return runAdminAction("admin.staff.manage", setStaffRoleSchema, input, async (ctx, { userId, role }) => {
-    await admin().staff.setRole(ctx, userId, role);
     return null;
   });
 }

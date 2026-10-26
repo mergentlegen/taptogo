@@ -31,11 +31,3 @@ export const organizationSchema = z.object({
   contactEmail: emailSchema,
 });
 export type OrganizationInput = z.input<typeof organizationSchema>;
-
-export const notificationsSchema = z.object({
-  weeklyReportEmail: z.boolean(),
-  lowActivityAlert: z.boolean(),
-});
-export type NotificationsInput = z.input<typeof notificationsSchema>;
-
-export const LOGO_MAX_BYTES = 2 * 1024 * 1024;

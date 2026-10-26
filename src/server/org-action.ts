@@ -17,7 +17,7 @@ import { orgContextFrom, type OrgContext } from "@/server/services/context";
  * from the session, never from the submitted data.
  *
  * Staff viewing a cabinet (impersonation) are strictly read-only: no mutation
- * runs, not even ones that only need "org.view" (profile, notifications).
+ * runs, not even ones that only need "org.view" (profile, password, sessions).
  */
 export function runOrgAction<S extends z.ZodType, T>(
   permission: OrgPermission,

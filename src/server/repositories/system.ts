@@ -1,5 +1,4 @@
 import type { AuditLog } from "@/features/audit/schemas";
-import type { NotificationSetting } from "@/features/notifications/schemas";
 import type { PlatformSettings } from "@/features/platform/schemas";
 
 import type { DateRange, NewEntity, Page } from "./common";
@@ -21,13 +20,6 @@ export interface AuditLogRepository {
   appendMany(entries: readonly NewEntity<AuditLog>[]): Promise<void>;
   /** Newest first, cursor-paginated. */
   list(filter: AuditLogFilter, page: { limit: number; cursor?: string | null }): Promise<Page<AuditLog>>;
-}
-
-export interface NotificationSettingRepository {
-  find(userId: string, organizationId: string): Promise<NotificationSetting | null>;
-  /** Everyone in an organization with a given notification switched on (for scheduled emails). */
-  listEnabled(kind: "weeklyReportEmail" | "lowActivityAlert"): Promise<NotificationSetting[]>;
-  upsert(setting: NotificationSetting): Promise<NotificationSetting>;
 }
 
 export interface PlatformSettingsRepository {

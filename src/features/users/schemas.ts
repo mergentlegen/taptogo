@@ -2,7 +2,8 @@ import { z } from "zod";
 
 import { emailSchema, idSchema, phoneSchema, textSchema, timestampSchema } from "@/lib/schemas";
 
-export const platformRoles = ["SUPER_ADMIN", "ADMIN", "SUPPORT"] as const;
+/** One platform role: the team is small, every staff member can do everything. */
+export const platformRoles = ["ADMIN"] as const;
 export const platformRoleSchema = z.enum(platformRoles);
 export type PlatformRole = z.infer<typeof platformRoleSchema>;
 
@@ -19,6 +20,8 @@ export const userSchema = z.object({
   platformRole: platformRoleSchema.nullable(),
   status: userStatusSchema,
   totpEnabled: z.boolean(),
+  /** Set when an administrator issued a temporary password: the account works only after a change. */
+  mustChangePassword: z.boolean(),
   lastLoginAt: timestampSchema.nullable(),
   createdAt: timestampSchema,
 });

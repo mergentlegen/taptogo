@@ -5,7 +5,6 @@ import { planConfigSchema } from "@/features/platform/schemas";
 import { paymentMethodSchema, planSchema } from "@/features/subscriptions/schemas";
 import { commentSubjectSchema, ticketStatusSchema } from "@/features/support/schemas";
 import { redirectTargetTypeSchema } from "@/features/targets/schemas";
-import { platformRoleSchema } from "@/features/users/schemas";
 import { dateSchema, emailSchema, idSchema, textSchema } from "@/lib/schemas";
 
 const optionalId = z.union([idSchema, z.literal("").transform(() => null), z.null()]);
@@ -66,10 +65,8 @@ export const addCommentSchema = z.object({
 export const createStaffSchema = z.object({
   email: emailSchema,
   name: textSchema(120),
-  role: platformRoleSchema,
 });
 export type CreateStaffInput = z.input<typeof createStaffSchema>;
-export const setStaffRoleSchema = z.object({ userId: idSchema, role: platformRoleSchema });
 export const setStaffStatusSchema = z.object({ userId: idSchema, status: z.enum(["ACTIVE", "BLOCKED"]) });
 
 /** Settings form: domains come as one-per-line text. */

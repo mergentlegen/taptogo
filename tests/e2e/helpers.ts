@@ -4,12 +4,9 @@ import { expect, type Page } from "@playwright/test";
 export const DEMO_PASSWORD = "demo12345";
 
 export const accounts = {
-  superAdmin: "superadmin@taptogo.kz",
   admin: "admin@taptogo.kz",
-  support: "support@taptogo.kz",
   owner: "owner@coffeepoint.kz",
   manager: "manager@coffeepoint.kz",
-  viewer: "viewer@coffeepoint.kz",
 } as const;
 
 /** Signs in through the real form (the "Sign in as…" shortcut does not exist in production builds). */

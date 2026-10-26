@@ -46,6 +46,8 @@ export type CreateClientInput = z.input<typeof createClientSchema>;
 export const updateClientSchema = clientOrganizationSchema.extend({ organizationId: idSchema });
 export const setClientStatusSchema = z.object({ organizationId: idSchema, status: organizationStatusSchema });
 export const addLocationSchema = newLocationSchema.extend({ organizationId: idSchema });
+export const markSentSchema = z.object({ id: idSchema });
+export const temporaryPasswordSchema = z.object({ organizationId: idSchema, userId: idSchema });
 export const inviteToClientSchema = z.object({
   organizationId: idSchema,
   email: emailSchema,

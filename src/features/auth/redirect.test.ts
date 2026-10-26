@@ -28,7 +28,7 @@ describe("safeNextPath", () => {
 
 describe("homePathFor", () => {
   it("sends staff to the admin panel and clients to the cabinet", () => {
-    expect(homePathFor({ platformRole: "SUPPORT" })).toBe("/admin");
+    expect(homePathFor({ platformRole: "ADMIN" })).toBe("/admin");
     expect(homePathFor({ platformRole: null })).toBe("/app");
   });
 });

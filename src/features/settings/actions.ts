@@ -2,18 +2,16 @@
 
 import { z } from "zod";
 
+import { runAccountAction } from "@/server/account-action";
 import type { ActionResult } from "@/server/actions";
-import { serviceError } from "@/server/i18n";
 import { runOrgAction } from "@/server/org-action";
 import { getServices } from "@/server/services";
 
 import {
   changePasswordSchema,
-  notificationsSchema,
   organizationSchema,
   profileSchema,
   type ChangePasswordInput,
-  type NotificationsInput,
   type OrganizationInput,
   type ProfileInput,
 } from "./form-schemas";
@@ -26,11 +24,12 @@ export async function updateProfileAction(input: ProfileInput): Promise<ActionRe
   });
 }
 
+/** Runs for any signed-in person, including one with a temporary password. */
 export async function changePasswordAction(input: ChangePasswordInput): Promise<ActionResult> {
-  return runOrgAction("org.view", changePasswordSchema, input, async (ctx, data, access) => {
+  return runAccountAction(changePasswordSchema, input, async ({ userId, sessionId }, data) => {
     await getServices().account.changePassword({
-      userId: ctx.userId,
-      currentSessionId: access.session.id,
+      userId,
+      currentSessionId: sessionId,
       currentPassword: data.currentPassword,
       newPassword: data.password,
     });
@@ -49,32 +48,6 @@ export async function revokeSessionAction(input: { sessionId: string }): Promise
 export async function updateOrganizationAction(input: OrganizationInput): Promise<ActionResult> {
   return runOrgAction("org.settings.manage", organizationSchema, input, async (ctx, data) => {
     await getServices().account.updateOrganization(ctx, data);
-    return null;
-  });
-}
-
-const logoSchema = z.instanceof(FormData);
-
-/** Receives the file as FormData; size and real type are checked by the service. */
-export async function uploadLogoAction(formData: FormData): Promise<ActionResult> {
-  return runOrgAction("org.settings.manage", logoSchema, formData, async (ctx, data) => {
-    const file = data.get("logo");
-    if (!(file instanceof File)) throw serviceError("VALIDATION", "logoBadType");
-    await getServices().account.uploadLogo(ctx, new Uint8Array(await file.arrayBuffer()));
-    return null;
-  });
-}
-
-export async function removeLogoAction(): Promise<ActionResult> {
-  return runOrgAction("org.settings.manage", z.undefined(), undefined, async (ctx) => {
-    await getServices().account.removeLogo(ctx);
-    return null;
-  });
-}
-
-export async function updateNotificationsAction(input: Partial<NotificationsInput>): Promise<ActionResult> {
-  return runOrgAction("org.view", notificationsSchema.partial(), input, async (ctx, data) => {
-    await getServices().account.updateNotifications(ctx, data);
     return null;
   });
 }

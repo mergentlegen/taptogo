@@ -11,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("title") };
 }
 
-/** SUPER_ADMIN only — enforced here and again in every staff action. */
+/** Administrators only — enforced here and again in every staff action. */
 export default async function AdminStaffPage() {
   const { session } = await requirePlatformAccess("admin.staff.manage");
   const [staff, t] = await Promise.all([

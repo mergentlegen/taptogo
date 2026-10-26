@@ -8,7 +8,6 @@ import type { Card, CardStatus, CardType } from "@/features/cards/schemas";
 import type { Employee } from "@/features/employees/schemas";
 import type { Lead } from "@/features/leads/schemas";
 import type { Location, RatingSnapshot } from "@/features/locations/schemas";
-import type { NotificationSetting } from "@/features/notifications/schemas";
 import type { Organization } from "@/features/organizations/schemas";
 import { defaultPlatformSettings } from "@/features/platform/schemas";
 import type { Payment, Subscription } from "@/features/subscriptions/schemas";
@@ -39,12 +38,9 @@ export const DEMO_PASSWORD = "demo12345";
 export const DEMO_INVITATION_TOKEN = "demo-invitation-token-coffee-point";
 
 export const demoAccounts = [
-  { email: "superadmin@taptogo.kz", role: "SUPER_ADMIN" },
   { email: "admin@taptogo.kz", role: "ADMIN" },
-  { email: "support@taptogo.kz", role: "SUPPORT" },
   { email: "owner@coffeepoint.kz", role: "OWNER" },
   { email: "manager@coffeepoint.kz", role: "MANAGER" },
-  { email: "viewer@coffeepoint.kz", role: "VIEWER" },
 ] as const satisfies readonly { email: string; role: PlatformRole | OrgRole }[];
 
 export function sha256(value: string): string {
@@ -363,42 +359,29 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
     platformRole,
     status: "ACTIVE",
     totpEnabled: false,
+    mustChangePassword: false,
     lastLoginAt: at(-1, 9, 30),
     createdAt: at(-120),
     ...extra,
   });
 
-  const superAdmin = makeUser("superadmin@taptogo.kz", "Ерболат Сериков", "SUPER_ADMIN", {
-    totpEnabled: true,
-  });
-  const admin = makeUser("admin@taptogo.kz", "Динара Касымова", "ADMIN", { phone: "+77010000002" });
-  const support = makeUser("support@taptogo.kz", "Нурсултан Абенов", "SUPPORT");
-  const formerSupport = makeUser("old.support@taptogo.kz", "Асель Нуриева", "SUPPORT", {
+  // The team is two people, both administrators; a third, blocked account shows how blocking looks.
+  const admin = makeUser("admin@taptogo.kz", "Ерболат Сериков", "ADMIN", { totpEnabled: true });
+  const partner = makeUser("admin2@taptogo.kz", "Динара Касымова", "ADMIN", { phone: "+77010000002" });
+  const formerAdmin = makeUser("old.admin@taptogo.kz", "Асель Нуриева", "ADMIN", {
     status: "BLOCKED",
     lastLoginAt: at(-70),
   });
   const coffeeOwner = makeUser("owner@coffeepoint.kz", "Аружан Сейткали", null, { phone: "+77011234567" });
   const coffeeManager = makeUser("manager@coffeepoint.kz", "Мадина Ахмет", null);
-  const coffeeViewer = makeUser("viewer@coffeepoint.kz", "Тимур Жаксылыков", null, { lastLoginAt: at(-6) });
   const beautyOwner = makeUser("owner@arubeauty.kz", "Алия Ахметова", null, { phone: "+77027654321" });
   const washOwner = makeUser("owner@aquadrive.kz", "Ержан Беков", null, { phone: "+77755550011" });
-  const users = [
-    superAdmin,
-    admin,
-    support,
-    formerSupport,
-    coffeeOwner,
-    coffeeManager,
-    coffeeViewer,
-    beautyOwner,
-    washOwner,
-  ];
+  const users = [admin, partner, formerAdmin, coffeeOwner, coffeeManager, beautyOwner, washOwner];
 
   // ── Organizations ───────────────────────────────────────────────────────
-  const makeOrg = (fields: Omit<Organization, "id" | "timezone" | "logoUrl" | "status" | "createdAt">) => ({
+  const makeOrg = (fields: Omit<Organization, "id" | "timezone" | "status" | "createdAt">) => ({
     id: rng.uuid(),
     timezone: tz,
-    logoUrl: null,
     status: "ACTIVE" as const,
     createdAt: at(-HISTORY_DAYS - 10),
     ...fields,
@@ -433,7 +416,6 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
   const memberships: Membership[] = [
     { userId: coffeeOwner.id, organizationId: orgs.coffee.id, role: "OWNER", createdAt: at(-100) },
     { userId: coffeeManager.id, organizationId: orgs.coffee.id, role: "MANAGER", createdAt: at(-90) },
-    { userId: coffeeViewer.id, organizationId: orgs.coffee.id, role: "VIEWER", createdAt: at(-60) },
     { userId: beautyOwner.id, organizationId: orgs.beauty.id, role: "OWNER", createdAt: at(-100) },
     { userId: washOwner.id, organizationId: orgs.carwash.id, role: "OWNER", createdAt: at(-100) },
     // Demonstrates one person in two organizations with different roles.
@@ -456,7 +438,7 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
       id: rng.uuid(),
       email: "accountant@aquadrive.kz",
       organizationId: orgs.carwash.id,
-      role: "VIEWER",
+      role: "MANAGER",
       invitedById: washOwner.id,
       expiresAt: at(-3),
       acceptedAt: null,
@@ -824,7 +806,7 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
       subject: "Изменить ссылку 2ГИС для филиала на Достык",
       body: "Мы переехали в соседнее здание, в 2ГИС теперь новая карточка организации.",
       status: "IN_PROGRESS",
-      assigneeId: support.id,
+      assigneeId: partner.id,
       createdAt: at(-3, 15),
       updatedAt: at(-2, 10),
     },
@@ -856,7 +838,7 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
       id: rng.uuid(),
       subjectType: "TICKET",
       subjectId: tickets[0]?.id ?? "",
-      authorId: support.id,
+      authorId: partner.id,
       body: "Запросил у клиента новую ссылку на 2ГИС, жду ответа.",
       createdAt: at(-2, 10),
     },
@@ -948,27 +930,6 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
   ];
   const auditLogs = auditEntries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const notificationSettings: NotificationSetting[] = [
-    {
-      userId: coffeeOwner.id,
-      organizationId: orgs.coffee.id,
-      weeklyReportEmail: true,
-      lowActivityAlert: true,
-    },
-    {
-      userId: coffeeManager.id,
-      organizationId: orgs.coffee.id,
-      weeklyReportEmail: false,
-      lowActivityAlert: true,
-    },
-    {
-      userId: washOwner.id,
-      organizationId: orgs.carwash.id,
-      weeklyReportEmail: true,
-      lowActivityAlert: false,
-    },
-  ];
-
   return {
     users,
     memberships,
@@ -988,7 +949,6 @@ export function createSeedData({ seed = DEMO_SEED, now = new Date() }: SeedOptio
     leads,
     comments,
     auditLogs,
-    notificationSettings,
     platformSettings: structuredClone(defaultPlatformSettings),
   };
 }

@@ -1,10 +1,12 @@
 import { Info, PlugZap } from "lucide-react";
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { notFound } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { features } from "@/config/features";
 import { YesNoBadge } from "@/features/admin/components/badges";
 import { SyncAllButton, SyncButton } from "@/features/admin/components/integration-components";
 import { formatDateTime, formatNumber, formatRating } from "@/lib/format";
@@ -19,6 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function AdminIntegrationsPage() {
   const { actor } = await requirePlatformAccess("admin.access");
+  if (!features.twogisApi) notFound();
   const [status, t] = await Promise.all([
     getServices().admin.integrations.status(),
     getTranslations("adm.integrations"),

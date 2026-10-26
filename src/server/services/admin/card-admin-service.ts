@@ -16,8 +16,6 @@ export type AdminCardRow = Card & {
   batch: string;
 };
 
-/** Statuses support staff may set (pause, resume, lost). Everything else is admin-only. */
-const SUPPORT_STATUSES: readonly CardStatus[] = ["ACTIVE", "PAUSED", "LOST"];
 /** The admin card list is a search: it shows this many matches and says how many there are. */
 export const ADMIN_CARDS_SHOWN = 500;
 /** A clash of fresh random codes is ~1e-9 per batch; retrying a couple of times is plenty. */
@@ -297,12 +295,9 @@ export class AdminCardService {
     return result.cards;
   }
 
-  /** Bulk status change. Support may only pause, resume or mark lost; UNASSIGNED releases the card. */
+  /** Bulk status change; UNASSIGNED releases the card back to the pool. */
   async setStatus(ctx: AdminContext, cardIds: string[], status: CardStatus) {
-    const supportOnly = !["SUPER_ADMIN", "ADMIN"].includes(ctx.role);
-    assertAdmin(ctx, supportOnly ? "admin.cards.status" : "admin.manage");
-    if (supportOnly && !SUPPORT_STATUSES.includes(status))
-      throw serviceError("FORBIDDEN", "supportStatusOnly");
+    assertAdmin(ctx, "admin.cards.status");
 
     const cards = await this.resolveSelection({ cardIds });
     // A card gets a client only through assign(); any other status needs one already.

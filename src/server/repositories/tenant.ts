@@ -1,5 +1,4 @@
 import type { Employee } from "@/features/employees/schemas";
-import type { NotificationSetting } from "@/features/notifications/schemas";
 import type { Organization } from "@/features/organizations/schemas";
 import type { SupportTicket } from "@/features/support/schemas";
 import type { Invitation, OrgRole } from "@/features/team/schemas";
@@ -35,10 +34,7 @@ export function forOrganization(repos: Repositories, organizationId: string) {
       get: () => repos.organizations.findById(organizationId),
       update: (
         patch: Partial<
-          Pick<
-            Organization,
-            "name" | "legalName" | "bin" | "contactName" | "contactPhone" | "contactEmail" | "logoUrl"
-          >
+          Pick<Organization, "name" | "legalName" | "bin" | "contactName" | "contactPhone" | "contactEmail">
         >,
       ) => repos.organizations.update(organizationId, patch),
     },
@@ -126,11 +122,6 @@ export function forOrganization(repos: Repositories, organizationId: string) {
         const invitation = await repos.invitations.findById(id);
         if (invitation?.organizationId === organizationId) await repos.invitations.delete(id);
       },
-    },
-    notificationSettings: {
-      find: (userId: string) => repos.notificationSettings.find(userId, organizationId),
-      upsert: (setting: Unscoped<NotificationSetting>) =>
-        repos.notificationSettings.upsert({ ...setting, organizationId }),
     },
   };
 }

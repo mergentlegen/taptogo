@@ -11,28 +11,26 @@ import type { PlatformRole } from "@/features/users/schemas";
 
 export const platformPermissions = {
   /** Open the admin panel and read everything in it. */
-  "admin.access": ["SUPER_ADMIN", "ADMIN", "SUPPORT"],
+  "admin.access": ["ADMIN"],
   /** Create/edit clients, locations, targets, batches, payments, subscriptions. */
-  "admin.manage": ["SUPER_ADMIN", "ADMIN"],
-  /** Pause a card or mark it lost (support handles these calls). */
-  "admin.cards.status": ["SUPER_ADMIN", "ADMIN", "SUPPORT"],
+  "admin.manage": ["ADMIN"],
+  /** Pause a card or mark it lost. */
+  "admin.cards.status": ["ADMIN"],
   /** Read-only view of a client's cabinet. */
-  "admin.impersonate": ["SUPER_ADMIN", "ADMIN", "SUPPORT"],
-  /**
-   * Work the inbox: ticket/lead status, assignee, internal comments.
-   * Includes SUPPORT (handling tickets is their job) — a deliberate extension
-   * of the spec matrix, which lists SUPPORT as read-only + card status.
-   */
-  "admin.inbox": ["SUPER_ADMIN", "ADMIN", "SUPPORT"],
-  "admin.staff.manage": ["SUPER_ADMIN"],
-  "admin.settings.manage": ["SUPER_ADMIN"],
+  "admin.impersonate": ["ADMIN"],
+  /** Work the inbox: ticket/lead status, assignee, internal comments. */
+  "admin.inbox": ["ADMIN"],
+  "admin.staff.manage": ["ADMIN"],
+  "admin.settings.manage": ["ADMIN"],
+  // There is a single platform role today. The permissions stay separate so that a
+  // second role (say, support) can be added by editing only this table.
 } as const satisfies Record<string, readonly PlatformRole[]>;
 
 export const orgPermissions = {
   /** Dashboard, cards, locations, employees and reports of the organization. */
-  "org.view": ["OWNER", "MANAGER", "VIEWER"],
-  "org.export": ["OWNER", "MANAGER", "VIEWER"],
-  "org.support": ["OWNER", "MANAGER", "VIEWER"],
+  "org.view": ["OWNER", "MANAGER"],
+  "org.export": ["OWNER", "MANAGER"],
+  "org.support": ["OWNER", "MANAGER"],
   "org.cards.manage": ["OWNER", "MANAGER"],
   "org.employees.manage": ["OWNER", "MANAGER"],
   "org.team.manage": ["OWNER"],

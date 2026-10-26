@@ -1,4 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+import { createSeedData } from "@/mocks/seed";
 
 import { accounts, DEMO_PASSWORD, signIn } from "./helpers";
 
@@ -44,12 +46,9 @@ test.describe("anonymous visitors", () => {
 
 test.describe("signing in with every role", () => {
   for (const [role, email, home] of [
-    ["SUPER_ADMIN", accounts.superAdmin, "/admin"],
     ["ADMIN", accounts.admin, "/admin"],
-    ["SUPPORT", accounts.support, "/admin"],
     ["OWNER", accounts.owner, "/app"],
     ["MANAGER", accounts.manager, "/app"],
-    ["VIEWER", accounts.viewer, "/app"],
   ] as const) {
     test(`${role} signs in through the form and lands in ${home}`, async ({ page }) => {
       await signIn(page, email);
@@ -65,8 +64,8 @@ test.describe("signing in with every role", () => {
 });
 
 test.describe("role access (server-enforced)", () => {
-  test("platform staff land in the admin panel; clients in the cabinet", async ({ page }) => {
-    await signIn(page, accounts.support);
+  test("administrators land in the admin panel", async ({ page }) => {
+    await signIn(page, accounts.admin);
     await expect(page).toHaveURL(/\/admin$/);
   });
 
@@ -83,23 +82,26 @@ test.describe("role access (server-enforced)", () => {
     expect((await page.goto("/app"))?.status()).toBe(403);
   });
 
-  test("only SUPER_ADMIN manages staff and system settings", async ({ page }) => {
-    await signIn(page, accounts.support);
-    await expect(page.getByRole("link", { name: "Сотрудники платформы" })).toHaveCount(0);
-    expect((await page.goto("/admin/staff"))?.status()).toBe(403);
-    expect((await page.goto("/admin/settings"))?.status()).toBe(403);
-    expect((await page.goto("/admin/audit"))?.status()).toBe(200);
-  });
+  test("an administrator reaches staff, settings and the audit log; clients reach none of them", async ({
+    page,
+    browser,
+  }) => {
+    await signIn(page, accounts.admin);
+    for (const path of ["/admin/staff", "/admin/settings", "/admin/audit", "/admin/outbox"] as const) {
+      expect((await page.goto(path))?.status(), path).toBe(200);
+    }
 
-  test("SUPER_ADMIN reaches staff management", async ({ page }) => {
-    await signIn(page, accounts.superAdmin);
-    expect((await page.goto("/admin/staff"))?.status()).toBe(200);
+    const client = await browser.newPage();
+    await signIn(client, accounts.owner);
+    for (const path of ["/admin/staff", "/admin/settings", "/admin/audit", "/admin/outbox"] as const) {
+      expect((await client.goto(path))?.status(), path).toBe(403);
+    }
+    await client.close();
   });
 
   for (const [role, email, teamStatus] of [
     ["OWNER", accounts.owner, 200],
     ["MANAGER", accounts.manager, 403],
-    ["VIEWER", accounts.viewer, 403],
   ] as const) {
     test(`${role} gets ${teamStatus} on the team page`, async ({ page }) => {
       await signIn(page, email);
@@ -124,7 +126,7 @@ test.describe("organizations", () => {
   });
 
   test("a forged organization cookie is ignored", async ({ page, context }) => {
-    await signIn(page, accounts.viewer);
+    await signIn(page, accounts.manager);
     await context.addCookies([
       { name: "ttg_org", value: "6f1c3c62-0000-4000-8000-000000000000", url: page.url() },
     ]);
@@ -171,3 +173,85 @@ test("an invited person sets a password and lands in the cabinet", async ({ page
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByTestId("org-switcher")).toContainText("Coffee Point");
 });
+
+test.describe("temporary passwords", () => {
+  test("an administrator issues one, the person must choose their own before anything else", async ({
+    page,
+    browser,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "mutates shared demo data; runs once");
+    // Five steps across three browser sessions: longer than the default under full-suite load.
+    test.setTimeout(90_000);
+    const email = `temp-${Date.now()}@example.kz`;
+    const newPassword = "Мой-новый-пароль-2026";
+
+    // 1. Admin invites a new person (the link goes to the manual sending queue).
+    await signIn(page, accounts.admin);
+    await page.goto(`/admin/organizations/${await orgIdByName("Coffee Point")}?tab=users`);
+    await page.getByRole("button", { name: "Пригласить" }).click();
+    await page.getByRole("dialog").getByLabel("Email").fill(email);
+    await page.getByRole("dialog").getByRole("button", { name: "Отправить приглашение" }).click();
+    await expect(page.getByText("Приглашение отправлено")).toBeVisible();
+    await page.goto("/admin/outbox");
+    const link = await page
+      .getByTestId("outbox-message")
+      .filter({ hasText: email })
+      .textContent()
+      .then((text) => /\/invite\/[A-Za-z0-9_-]+/.exec(text ?? "")?.[0]);
+    expect(link).toBeTruthy();
+
+    // 2. The person accepts the invitation and becomes a member.
+    const newcomer = await browser.newContext();
+    const invited = await newcomer.newPage();
+    await invited.goto(link!);
+    await invited.getByLabel("Ваше имя").fill("Временный Клиент");
+    await invited.getByLabel("Пароль", { exact: true }).fill("Сначала-свой-пароль-2026");
+    await invited.getByLabel("Повторите пароль").fill("Сначала-свой-пароль-2026");
+    await invited.getByRole("button", { name: "Принять приглашение" }).click();
+    await expect(invited).toHaveURL(/\/app$/);
+    await newcomer.close();
+
+    // 3. Admin issues a temporary password to that member.
+    await page.goto(`/admin/organizations/${await orgIdByName("Coffee Point")}?tab=users`);
+    const row = page.getByRole("row").filter({ hasText: email });
+    await row.getByRole("button", { name: "Выдать временный пароль" }).click();
+    const temporary = await page.getByTestId("temporary-password").textContent();
+    expect(temporary).toMatch(/^[A-Za-z0-9]{12}$/);
+    await page.keyboard.press("Escape");
+
+    // 4. The person signs in with it and is stopped until the password is changed.
+    const fresh = await browser.newContext();
+    const person = await fresh.newPage();
+    await signInWith(person, email, temporary!);
+    await expect(person).toHaveURL(/\/change-password$/);
+    await person.goto("/app/cards");
+    await expect(person).toHaveURL(/\/change-password$/);
+    await person.getByLabel("Текущий пароль").fill(temporary!);
+    await person.getByLabel("Новый пароль", { exact: true }).fill(newPassword);
+    await person.getByLabel("Повторите новый пароль").fill(newPassword);
+    await person.getByRole("button", { name: "Сменить пароль" }).click();
+    await expect(person).toHaveURL(/\/app$/);
+
+    // 5. The new password works from now on; the temporary one does not.
+    await fresh.close();
+    const again = await browser.newContext();
+    const returning = await again.newPage();
+    await signInWith(returning, email, newPassword);
+    await expect(returning).toHaveURL(/\/app$/);
+    await again.close();
+  });
+});
+
+async function signInWith(page: Page, email: string, password: string) {
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Пароль").fill(password);
+  await page.getByRole("button", { name: "Войти", exact: true }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+}
+
+async function orgIdByName(name: string): Promise<string> {
+  const seed = createSeedData();
+  return seed.organizations.find((o) => o.name === name)!.id;
+}

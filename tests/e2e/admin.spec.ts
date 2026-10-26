@@ -10,7 +10,7 @@ const coffee = seed.organizations.find((o) => o.name === "Coffee Point")!;
 test.describe("admin pages", () => {
   test("every section renders without console errors", async ({ page }) => {
     const errors = collectConsoleErrors(page);
-    await signIn(page, accounts.superAdmin);
+    await signIn(page, accounts.admin);
     for (const path of [
       "/admin",
       "/admin/organizations",
@@ -20,7 +20,8 @@ test.describe("admin pages", () => {
       "/admin/batches",
       "/admin/targets",
       "/admin/billing",
-      "/admin/integrations",
+      "/admin/outbox",
+      // "/admin/integrations" is hidden while features.twogisApi is off (404 by design)
       "/admin/support",
       "/admin/leads",
       "/admin/staff",
@@ -70,7 +71,7 @@ test.describe("clients", () => {
 
   test("staff can open a client's cabinet read-only and leave it", async ({ page, isMobile }) => {
     test.skip(isMobile, "same flow on mobile");
-    await signIn(page, accounts.superAdmin);
+    await signIn(page, accounts.admin);
     await page.goto(`/admin/organizations/${coffee.id}`);
     await page.getByRole("button", { name: "Открыть кабинет (только чтение)" }).click();
 
@@ -79,6 +80,10 @@ test.describe("clients", () => {
     await expect(page.getByTestId("impersonation-banner")).toContainText("Coffee Point");
     // Read-only: management sections are closed even though staff opened the cabinet.
     expect((await page.goto("/app/team"))?.status()).toBe(403);
+    const card = seed.cards.find((c) => c.organizationId === coffee.id)!;
+    await page.goto(`/app/cards/${card.id}`);
+    await expect(page.getByText("Изменять карточки могут владелец и менеджер.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Сообщить о потере" })).toHaveCount(0);
     // Even personal "org.view" mutations are rejected on the server.
     await page.goto("/app/settings");
     await page.getByLabel("Имя", { exact: true }).fill("Подмена");
@@ -162,15 +167,27 @@ test.describe("client invitations", () => {
   });
 });
 
-test.describe("support role", () => {
-  test("sees the panel but not management screens", async ({ page }) => {
-    await signIn(page, accounts.support);
-    expect((await page.goto("/admin/cards"))?.status()).toBe(200);
-    await expect(page.getByRole("button", { name: "Назначить клиенту" })).toHaveCount(0);
-    expect((await page.goto("/admin/support"))?.status()).toBe(200);
+test("the 2GIS integration page is hidden while the feature is off", async ({ page }) => {
+  await signIn(page, accounts.admin);
+  expect((await page.goto("/admin/integrations"))?.status()).toBe(404);
+  await expect(page.getByRole("link", { name: "Интеграции" })).toHaveCount(0);
+});
 
-    for (const path of ["/admin/organizations/new", "/admin/staff", "/admin/settings"] as const) {
-      expect((await page.goto(path))?.status(), path).toBe(403);
-    }
+test.describe("manual sending", () => {
+  test("the admin copies a queued invitation and marks it as sent", async ({ page, isMobile }) => {
+    test.skip(isMobile, "mutates shared demo data; runs once");
+    await signIn(page, accounts.admin);
+    await page.goto(`/admin/organizations/${coffee.id}?tab=users`);
+    const email = `manual-${Date.now()}@example.kz`;
+    await page.getByRole("button", { name: "Пригласить" }).click();
+    await page.getByRole("dialog").getByLabel("Email").fill(email);
+    await page.getByRole("dialog").getByRole("button", { name: "Отправить приглашение" }).click();
+    await expect(page.getByText("Приглашение отправлено")).toBeVisible();
+
+    await page.goto("/admin/outbox");
+    const message = page.getByTestId("outbox-message").filter({ hasText: email });
+    await expect(message).toContainText("/invite/");
+    await message.getByRole("button", { name: "Отправлено" }).click();
+    await expect(message.getByText(/Отправлено /)).toBeVisible();
   });
 });

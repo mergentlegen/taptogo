@@ -55,7 +55,8 @@ export function ProfileForm({ name, phone, email }: { name: string; phone: strin
   );
 }
 
-export function PasswordForm() {
+/** `onSaved` lets a caller move on after the change; the settings page leaves it out. */
+export function PasswordForm({ onSaved }: { onSaved?: () => void } = {}) {
   const t = useTranslations("settings.password");
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export function PasswordForm() {
       if (result.ok) {
         toast.success(t("saved"));
         form.reset();
+        onSaved?.();
       } else {
         setFormError(applyActionError(result.error, form.setError, ["password", "confirmPassword"]));
       }

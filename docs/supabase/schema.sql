@@ -5,13 +5,11 @@
 -- пройти по шагам docs/SUPABASE_MIGRATION.md, разбить на миграции
 -- (supabase/migrations/*.sql) и проверить на staging-проекте.
 -- Синтаксис и политики автоматически проверяет tests/schema/rls.test.ts
--- (PGlite + заглушки auth/storage) в составе `pnpm test`.
+-- (PGlite + заглушка auth) в составе `pnpm test`.
 --
 -- Соответствие коду:
 --   * таблицы и поля — это Zod-схемы из src/features/*/schemas.ts,
 --     camelCase в коде → snake_case здесь (organizationId → organization_id);
---   * исключение: Organization.logoUrl → organizations.logo_path (это ключ
---     объекта в Storage, а не URL — см. комментарий в схеме);
 --   * enum-типы повторяют массивы `as const` из тех же файлов;
 --   * CHECK-ограничения повторяют Zod (длины строк, форматы) — БД остаётся
 --     последней линией защиты, если какой-то путь обойдёт валидацию.
@@ -33,9 +31,9 @@
 -- Перечисления
 -- -----------------------------------------------------------------------------
 
-create type public.platform_role       as enum ('SUPER_ADMIN', 'ADMIN', 'SUPPORT');
+create type public.platform_role       as enum ('ADMIN');
 create type public.user_status         as enum ('ACTIVE', 'BLOCKED', 'PENDING');
-create type public.org_role            as enum ('OWNER', 'MANAGER', 'VIEWER');
+create type public.org_role            as enum ('OWNER', 'MANAGER');
 create type public.organization_status as enum ('ACTIVE', 'SUSPENDED', 'ARCHIVED');
 create type public.redirect_target_type as enum ('TWOGIS_REVIEW', 'TWOGIS_PROFILE', 'GOOGLE_MAPS', 'CUSTOM');
 create type public.card_type           as enum ('NFC_CARD', 'STICKER', 'STAND', 'QR_ONLY');
@@ -67,6 +65,9 @@ create table public.users (
   platform_role  public.platform_role,
   status         public.user_status not null default 'ACTIVE',
   totp_enabled   boolean not null default false,
+  -- Выставляет администратор при выдаче временного пароля; пока true, кабинет
+  -- и админка недоступны до смены пароля (проверяет приложение, см. session.ts).
+  must_change_password boolean not null default false,
   last_login_at  timestamptz,
   created_at     timestamptz not null default now()
 );
@@ -81,9 +82,6 @@ create table public.organizations (
   contact_phone  text not null check (contact_phone ~ '^\+7[0-9]{10}$'),
   contact_email  text not null check (char_length(contact_email) <= 254),
   timezone       text not null default 'Asia/Almaty',
-  -- Путь объекта в приватном bucket «logos»: '{organization_id}/{uuid}.{ext}'.
-  -- Наружу отдаётся только подписанной ссылкой на 5 минут (StorageProvider).
-  logo_path      text check (char_length(logo_path) <= 512),
   status         public.organization_status not null default 'ACTIVE',
   created_at     timestamptz not null default now()
 );
@@ -127,13 +125,6 @@ create table public.impersonation_sessions (
 create index impersonation_sessions_active_idx
   on public.impersonation_sessions (auth_session_id) where ended_at is null;
 
-create table public.notification_settings (
-  user_id             uuid not null references public.users (id) on delete cascade,
-  organization_id     uuid not null references public.organizations (id) on delete cascade,
-  weekly_report_email boolean not null default true,
-  low_activity_alert  boolean not null default true,
-  primary key (user_id, organization_id)
-);
 
 
 -- -----------------------------------------------------------------------------
@@ -421,32 +412,16 @@ insert into public.platform_settings (allowed_redirect_domains, grace_days, plan
 create schema if not exists private;
 grant usage on schema private to authenticated;
 
-create function private.current_platform_role()
-returns public.platform_role
-language sql stable security definer set search_path = '' as $$
-  select u.platform_role
-  from public.users u
-  where u.id = (select auth.uid()) and u.status = 'ACTIVE'
-$$;
-
--- Любой сотрудник TapToGo (SUPER_ADMIN, ADMIN, SUPPORT): чтение админ-панели.
-create function private.is_platform_staff()
-returns boolean
-language sql stable security definer set search_path = '' as $$
-  select private.current_platform_role() is not null
-$$;
-
--- SUPER_ADMIN или ADMIN: управление клиентами, карточками, платежами.
+-- Администратор TapToGo: единственная роль платформы. Заблокированный
+-- администратор доступ теряет сразу.
 create function private.is_platform_admin()
 returns boolean
 language sql stable security definer set search_path = '' as $$
-  select coalesce(private.current_platform_role() in ('SUPER_ADMIN', 'ADMIN'), false)
-$$;
-
-create function private.is_super_admin()
-returns boolean
-language sql stable security definer set search_path = '' as $$
-  select coalesce(private.current_platform_role() = 'SUPER_ADMIN', false)
+  select exists (
+    select 1
+    from public.users u
+    where u.id = (select auth.uid()) and u.status = 'ACTIVE' and u.platform_role = 'ADMIN'
+  )
 $$;
 
 -- Текущий пользователь состоит в организации (любая роль).
@@ -503,19 +478,15 @@ grant execute on all functions in schema private to authenticated;
 -- матрице src/server/permissions.ts (UI и сервер проверяют то же самое; RLS —
 -- вторая линия обороны на случай ошибки в коде):
 --
---   Действие                         SUPER  ADMIN  SUPPORT  OWNER  MANAGER  VIEWER
---   Чтение админ-панели (всё)          ✓      ✓      ✓        —      —        —
---   Клиенты, филиалы, цели, партии,
---     платежи, подписки (запись)       ✓      ✓      —        —      —        —
---   Статус карточки (пауза/потеря)     ✓      ✓      ✓        ✓      ✓        —
---   Обращения и лиды (работа)          ✓      ✓      ✓        —      —        —
---   Сотрудники платформы, настройки    ✓      —      —        —      —        —
---   Дашборд, отчёты своей организации  —      —      —        ✓      ✓        ✓
---   Карточки, сотрудники (запись)      —      —      —        ✓      ✓        —
---   Команда, данные организации        —      —      —        ✓      —        —
+--   Действие                         ADMIN  OWNER  MANAGER
+--   Админ-панель, чтение и запись      ✓      —      —
+--   Статус карточки (пауза/потеря)     ✓      ✓      ✓
+--   Дашборд, отчёты своей организации  —      ✓      ✓
+--   Карточки, сотрудники (запись)      —      ✓      ✓
+--   Команда, данные организации        —      ✓      —
 --
 -- Просмотр кабинета сотрудником платформы отдельных политик не требует:
--- читать он может и так (is_platform_staff), а писать в данные клиента ему
+-- читать он может и так (is_platform_admin), а писать в данные клиента ему
 -- RLS не даёт — он не член организации. Запрет записи во время просмотра
 -- дублируется в приложении (runOrgAction).
 --
@@ -528,7 +499,6 @@ alter table public.organizations          enable row level security;
 alter table public.memberships            enable row level security;
 alter table public.invitations            enable row level security;
 alter table public.impersonation_sessions enable row level security;
-alter table public.notification_settings  enable row level security;
 alter table public.locations              enable row level security;
 alter table public.employees              enable row level security;
 alter table public.redirect_targets       enable row level security;
@@ -549,27 +519,27 @@ alter table public.platform_settings      enable row level security;
 -- users -----------------------------------------------------------------------
 -- Видно: себя; коллег по организациям; всем сотрудникам платформы.
 -- Меняет: сам себя (только name, phone — остальное режет триггер ниже);
--- SUPER_ADMIN — роли и статусы сотрудников. Создание — только через Auth
+-- администратор — статусы сотрудников платформы. Создание — только через Auth
 -- Admin API (service_role): приглашение клиента, новый сотрудник платформы.
 create policy users_select on public.users for select to authenticated
   using (
     id = (select auth.uid())
-    or (select private.is_platform_staff())
+    or (select private.is_platform_admin())
     or private.shares_org_with(id)
   );
 create policy users_update_self on public.users for update to authenticated
   using (id = (select auth.uid()))
   with check (id = (select auth.uid()));
 create policy users_update_staff on public.users for update to authenticated
-  using ((select private.is_super_admin()) and platform_role is not null)
-  with check ((select private.is_super_admin()) and platform_role is not null);
+  using ((select private.is_platform_admin()) and platform_role is not null)
+  with check ((select private.is_platform_admin()) and platform_role is not null);
 
 -- organizations ---------------------------------------------------------------
--- Видно: членам и сотрудникам платформы. Создаёт: ADMIN+ (мастер клиента).
--- Меняет: OWNER (реквизиты, логотип) и ADMIN+ (всё, включая статус —
+-- Видно: членам и сотрудникам платформы. Создаёт: администратор (мастер клиента).
+-- Меняет: OWNER (реквизиты) и администратор (всё, включая статус —
 -- смену статуса владельцем запрещает триггер). Удаления нет: архив.
 create policy organizations_select on public.organizations for select to authenticated
-  using (private.is_org_member(id) or (select private.is_platform_staff()));
+  using (private.is_org_member(id) or (select private.is_platform_admin()));
 create policy organizations_insert on public.organizations for insert to authenticated
   with check ((select private.is_platform_admin()));
 create policy organizations_update on public.organizations for update to authenticated
@@ -578,11 +548,11 @@ create policy organizations_update on public.organizations for update to authent
 
 -- memberships -----------------------------------------------------------------
 -- Видно: членам той же организации и сотрудникам. Создаёт membership только
--- принятие приглашения (service_role) и мастер клиента (ADMIN+).
--- Роль меняет и участника удаляет OWNER или ADMIN+; последнего OWNER убрать
+-- принятие приглашения (service_role) и мастер клиента (администратор).
+-- Роль меняет и участника удаляет OWNER или администратор; последнего OWNER убрать
 -- нельзя — проверяет триггер.
 create policy memberships_select on public.memberships for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 create policy memberships_insert on public.memberships for insert to authenticated
   with check ((select private.is_platform_admin()));
 create policy memberships_update on public.memberships for update to authenticated
@@ -592,7 +562,7 @@ create policy memberships_delete on public.memberships for delete to authenticat
   using (private.has_org_role(organization_id, '{OWNER}') or (select private.is_platform_admin()));
 
 -- invitations -----------------------------------------------------------------
--- OWNER своей организации и ADMIN+. Поиск по токену и принятие —
+-- OWNER своей организации и администратор. Поиск по токену и принятие —
 -- service_role (у приглашённого ещё нет доступа к организации).
 create policy invitations_select on public.invitations for select to authenticated
   using (private.has_org_role(organization_id, '{OWNER}') or (select private.is_platform_admin()));
@@ -602,52 +572,45 @@ create policy invitations_delete on public.invitations for delete to authenticat
   using (private.has_org_role(organization_id, '{OWNER}') or (select private.is_platform_admin()));
 
 -- impersonation_sessions ------------------------------------------------------
--- Сотрудник видит и завершает свои просмотры; SUPER_ADMIN видит все.
+-- Администратор видит и завершает свои просмотры; журнал просмотров видят все администраторы.
 -- (Сам факт просмотра ещё и пишется в audit_logs.)
 create policy impersonation_select on public.impersonation_sessions for select to authenticated
-  using (staff_user_id = (select auth.uid()) or (select private.is_super_admin()));
+  using (staff_user_id = (select auth.uid()) or (select private.is_platform_admin()));
 create policy impersonation_insert on public.impersonation_sessions for insert to authenticated
-  with check (staff_user_id = (select auth.uid()) and (select private.is_platform_staff()));
+  with check (staff_user_id = (select auth.uid()) and (select private.is_platform_admin()));
 create policy impersonation_update on public.impersonation_sessions for update to authenticated
   using (staff_user_id = (select auth.uid()))
   with check (staff_user_id = (select auth.uid()));
 
--- notification_settings -------------------------------------------------------
--- Только свои настройки в своих организациях. Рассылки читают их через
--- service_role (cron).
-create policy notification_settings_own on public.notification_settings for all to authenticated
-  using (user_id = (select auth.uid()) and private.is_org_member(organization_id))
-  with check (user_id = (select auth.uid()) and private.is_org_member(organization_id));
-
 -- locations, redirect_targets ---------------------------------------------------
 -- Клиент только читает: изменить филиал или ссылку 2ГИС он просит через
--- обращение; цели (особенно CUSTOM) создаёт и подтверждает ADMIN+.
+-- обращение; цели (особенно CUSTOM) создаёт и подтверждает администратор.
 create policy locations_select on public.locations for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 create policy locations_write on public.locations for all to authenticated
   using ((select private.is_platform_admin()))
   with check ((select private.is_platform_admin()));
 
 create policy redirect_targets_select on public.redirect_targets for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 create policy redirect_targets_write on public.redirect_targets for all to authenticated
   using ((select private.is_platform_admin()))
   with check ((select private.is_platform_admin()));
 
 -- employees -------------------------------------------------------------------
--- Читают все члены; добавляют, меняют и удаляют OWNER и MANAGER (и ADMIN+).
+-- Читают все члены; добавляют, меняют и удаляют OWNER и MANAGER (и администратор).
 create policy employees_select on public.employees for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 create policy employees_write on public.employees for all to authenticated
   using (private.has_org_role(organization_id, '{OWNER,MANAGER}') or (select private.is_platform_admin()))
   with check (private.has_org_role(organization_id, '{OWNER,MANAGER}') or (select private.is_platform_admin()));
 
 -- rating_snapshots ------------------------------------------------------------
 -- Читают члены организации филиала и сотрудники. Пишет ежедневный cron
--- (service_role) и ручная синхронизация ADMIN+.
+-- (service_role) и ручная синхронизация администратор.
 create policy rating_snapshots_select on public.rating_snapshots for select to authenticated
   using (
-    (select private.is_platform_staff())
+    (select private.is_platform_admin())
     or exists (
       select 1 from public.locations l
       where l.id = rating_snapshots.location_id and private.is_org_member(l.organization_id)
@@ -659,31 +622,31 @@ create policy rating_snapshots_insert on public.rating_snapshots for insert to a
 -- card_batches ------------------------------------------------------------------
 -- Производство карточек — внутренняя кухня платформы, клиенту не видно.
 create policy card_batches_select on public.card_batches for select to authenticated
-  using ((select private.is_platform_staff()));
+  using ((select private.is_platform_admin()));
 create policy card_batches_write on public.card_batches for all to authenticated
   using ((select private.is_platform_admin()))
   with check ((select private.is_platform_admin()));
 
 -- cards -------------------------------------------------------------------------
 -- Видно: членам организации карточки и сотрудникам (неназначенные — только
--- сотрудникам). Создаёт: ADMIN+ (партия). Меняют: OWNER/MANAGER, SUPPORT и
--- ADMIN+ — какие поля и статусы кому можно, решает триггер guard_card_update.
+-- сотрудникам). Создаёт: администратор (партия). Меняют: OWNER/MANAGER и
+-- администратор — какие поля и статусы кому можно, решает триггер guard_card_update.
 -- Удаления нет: REVOKED.
 create policy cards_select on public.cards for select to authenticated
   using (
     (organization_id is not null and private.is_org_member(organization_id))
-    or (select private.is_platform_staff())
+    or (select private.is_platform_admin())
   );
 create policy cards_insert on public.cards for insert to authenticated
   with check ((select private.is_platform_admin()));
 create policy cards_update on public.cards for update to authenticated
   using (
     (organization_id is not null and private.has_org_role(organization_id, '{OWNER,MANAGER}'))
-    or (select private.is_platform_staff())
+    or (select private.is_platform_admin())
   )
   with check (
     (organization_id is not null and private.has_org_role(organization_id, '{OWNER,MANAGER}'))
-    or (select private.is_platform_staff())
+    or (select private.is_platform_admin())
   );
 
 -- tap_events, daily_card_stats ------------------------------------------------
@@ -691,49 +654,48 @@ create policy cards_update on public.cards for update to authenticated
 -- (редирект /t/{code} — анонимный запрос) через service_role и
 -- функцию increment_daily_card_stat.
 create policy tap_events_select on public.tap_events for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 create policy daily_card_stats_select on public.daily_card_stats for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 
 -- subscriptions, payments -------------------------------------------------------
 -- Подписку видят члены (баннер «подписка истекла», лимит карточек);
--- платежи — только сотрудники. Записывает ADMIN+.
+-- платежи — только сотрудники. Записывает администратор.
 create policy subscriptions_select on public.subscriptions for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 create policy subscriptions_write on public.subscriptions for all to authenticated
   using ((select private.is_platform_admin()))
   with check ((select private.is_platform_admin()));
 
 create policy payments_select on public.payments for select to authenticated
-  using ((select private.is_platform_staff()));
+  using ((select private.is_platform_admin()));
 create policy payments_insert on public.payments for insert to authenticated
   with check ((select private.is_platform_admin()) and recorded_by_id = (select auth.uid()));
 
 -- support_tickets ---------------------------------------------------------------
 -- Клиент (любая роль) создаёт обращение от своего имени и видит обращения
--- своей организации. Статус и ответственного меняют сотрудники (включая
--- SUPPORT — это их работа).
+-- своей организации. Статус и ответственного меняет администратор.
 create policy support_tickets_select on public.support_tickets for select to authenticated
-  using (private.is_org_member(organization_id) or (select private.is_platform_staff()));
+  using (private.is_org_member(organization_id) or (select private.is_platform_admin()));
 create policy support_tickets_insert on public.support_tickets for insert to authenticated
   with check (author_id = (select auth.uid()) and private.is_org_member(organization_id));
 create policy support_tickets_update on public.support_tickets for update to authenticated
-  using ((select private.is_platform_staff()))
-  with check ((select private.is_platform_staff()));
+  using ((select private.is_platform_admin()))
+  with check ((select private.is_platform_admin()));
 
 -- leads, internal_comments ------------------------------------------------------
 -- Только сотрудники. Заявку с лендинга (анонимный посетитель) вставляет
 -- сервер через service_role после проверки Zod и лимита частоты.
 create policy leads_select on public.leads for select to authenticated
-  using ((select private.is_platform_staff()));
+  using ((select private.is_platform_admin()));
 create policy leads_update on public.leads for update to authenticated
-  using ((select private.is_platform_staff()))
-  with check ((select private.is_platform_staff()));
+  using ((select private.is_platform_admin()))
+  with check ((select private.is_platform_admin()));
 
 create policy internal_comments_select on public.internal_comments for select to authenticated
-  using ((select private.is_platform_staff()));
+  using ((select private.is_platform_admin()));
 create policy internal_comments_insert on public.internal_comments for insert to authenticated
-  with check ((select private.is_platform_staff()) and author_id = (select auth.uid()));
+  with check ((select private.is_platform_admin()) and author_id = (select auth.uid()));
 
 -- audit_logs --------------------------------------------------------------------
 -- Только вставка, и только от своего имени. Системные записи (actor = null)
@@ -741,7 +703,7 @@ create policy internal_comments_insert on public.internal_comments for insert to
 -- UPDATE/DELETE политик нет, права отозваны, а триггер ниже не даст изменить
 -- журнал даже service_role.
 create policy audit_logs_select on public.audit_logs for select to authenticated
-  using ((select private.is_platform_staff()));
+  using ((select private.is_platform_admin()));
 create policy audit_logs_insert on public.audit_logs for insert to authenticated
   with check (actor_user_id = (select auth.uid()));
 
@@ -749,12 +711,12 @@ revoke update, delete, truncate on public.audit_logs from anon, authenticated, s
 
 -- platform_settings -------------------------------------------------------------
 -- Читают все вошедшие (лимиты тарифов, grace-период, allowlist); лендинг
--- получает тарифы на сервере. Меняет только SUPER_ADMIN.
+-- получает тарифы на сервере. Меняет администратор.
 create policy platform_settings_select on public.platform_settings for select to authenticated
   using (true);
 create policy platform_settings_update on public.platform_settings for update to authenticated
-  using ((select private.is_super_admin()))
-  with check ((select private.is_super_admin()));
+  using ((select private.is_platform_admin()))
+  with check ((select private.is_platform_admin()));
 
 
 -- =============================================================================
@@ -766,18 +728,19 @@ create policy platform_settings_update on public.platform_settings for update to
 -- =============================================================================
 
 -- Пользователь меняет у себя только name и phone; роль платформы, статус,
--- email и 2FA — только SUPER_ADMIN (или сервер).
+-- email и 2FA — только администратор (или сервер).
 create function private.guard_user_update()
 returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
-  if (select auth.uid()) is null or private.is_super_admin() then
+  if (select auth.uid()) is null or private.is_platform_admin() then
     return new;
   end if;
   if new.email is distinct from old.email
      or new.platform_role is distinct from old.platform_role
      or new.status is distinct from old.status
      or new.totp_enabled is distinct from old.totp_enabled
+     or new.must_change_password is distinct from old.must_change_password
      or new.last_login_at is distinct from old.last_login_at then
     raise exception 'users: only name and phone can be changed' using errcode = '42501';
   end if;
@@ -787,7 +750,7 @@ $$;
 create trigger users_guard before update on public.users
   for each row execute function private.guard_user_update();
 
--- Статус организации (приостановка, архив) меняет только ADMIN+.
+-- Статус организации (приостановка, архив) меняет только администратор.
 create function private.guard_organization_update()
 returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -805,11 +768,10 @@ create trigger organizations_guard before update on public.organizations
   for each row execute function private.guard_organization_update();
 
 -- Карточка:
---   ADMIN+   — любые изменения;
---   SUPPORT  — только статус ACTIVE ↔ PAUSED и LOST;
+--   администратор — любые изменения;
 --   OWNER/MANAGER — название, филиал, сотрудник, цель и статус
 --                   ACTIVE ↔ PAUSED или LOST, и только пока карточка
---                   ACTIVE/PAUSED (LOST/REVOKED возвращает поддержка).
+--                   ACTIVE/PAUSED (LOST/REVOKED возвращает администратор).
 create function private.guard_card_update()
 returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -831,17 +793,6 @@ begin
   if new.status is distinct from old.status
      and new.status not in ('ACTIVE', 'PAUSED', 'LOST') then
     raise exception 'cards: status % is managed by TapToGo', new.status using errcode = '42501';
-  end if;
-
-  if private.is_platform_staff() then
-    -- SUPPORT: только статус.
-    if new.label is distinct from old.label
-       or new.location_id is distinct from old.location_id
-       or new.employee_id is distinct from old.employee_id
-       or new.target_id is distinct from old.target_id then
-      raise exception 'cards: support may change only the status' using errcode = '42501';
-    end if;
-    return new;
   end if;
 
   -- Клиент.
@@ -1132,34 +1083,3 @@ revoke execute on function public.daily_stat_totals, public.assign_cards, public
   public.create_client from public, anon;
 grant execute on function public.daily_stat_totals, public.assign_cards, public.create_batch_with_cards,
   public.create_client to authenticated, service_role;
-
-
--- =============================================================================
--- Storage: приватный bucket для логотипов
--- Путь объекта: '{organization_id}/{uuid}.{png|jpg|webp}'. В коде ключ имеет
--- вид 'logos/{organization_id}/...' — первый сегмент становится bucket.
--- Тип и размер файла проверяет сервер по содержимому (до 2 МБ, LOGO_MAX_BYTES); здесь —
--- ограничения bucket как вторая линия.
--- =============================================================================
-
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('logos', 'logos', false, 2097152, array['image/png', 'image/jpeg', 'image/webp']);
-
-create policy logos_read on storage.objects for select to authenticated
-  using (
-    bucket_id = 'logos'
-    and (
-      private.is_org_member(((storage.foldername(name))[1])::uuid)
-      or (select private.is_platform_staff())
-    )
-  );
-create policy logos_write on storage.objects for insert to authenticated
-  with check (
-    bucket_id = 'logos'
-    and private.has_org_role(((storage.foldername(name))[1])::uuid, '{OWNER}')
-  );
-create policy logos_delete on storage.objects for delete to authenticated
-  using (
-    bucket_id = 'logos'
-    and private.has_org_role(((storage.foldername(name))[1])::uuid, '{OWNER}')
-  );

@@ -11,11 +11,7 @@ import {
   mockRatingSnapshotRepository,
   mockRedirectTargetRepository,
 } from "./organizations";
-import {
-  mockAuditLogRepository,
-  mockNotificationSettingRepository,
-  mockPlatformSettingsRepository,
-} from "./system";
+import { mockAuditLogRepository, mockPlatformSettingsRepository } from "./system";
 import { mockInvitationRepository, mockMembershipRepository, mockUserRepository } from "./users";
 
 export type { MockContext } from "./context";
@@ -40,7 +36,6 @@ export function createMockRepositories(context: MockContext): Repositories {
     leads: mockLeadRepository(context),
     comments: mockInternalCommentRepository(context),
     auditLogs: mockAuditLogRepository(context),
-    notificationSettings: mockNotificationSettingRepository(context),
     platformSettings: mockPlatformSettingsRepository(context),
   };
 }

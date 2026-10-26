@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { emailSchema, idSchema, timestampSchema } from "@/lib/schemas";
 
-export const orgRoles = ["OWNER", "MANAGER", "VIEWER"] as const;
+export const orgRoles = ["OWNER", "MANAGER"] as const;
 export const orgRoleSchema = z.enum(orgRoles);
 export type OrgRole = z.infer<typeof orgRoleSchema>;
 

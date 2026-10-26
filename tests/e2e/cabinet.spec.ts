@@ -166,13 +166,6 @@ test.describe("cards", () => {
     expect(svg.headers()["content-type"]).toContain("image/svg+xml");
   });
 
-  test("viewers can look but not change", async ({ page }) => {
-    await signIn(page, accounts.viewer);
-    await page.goto(`/app/cards/${coffeeCard("Стол 1", "Абая").id}`);
-    await expect(page.getByText("Изменять карточки могут владелец и менеджер.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Сообщить о потере" })).toHaveCount(0);
-  });
-
   test("a card reported lost stops redirecting immediately", async ({ page, isMobile }) => {
     test.skip(isMobile, "mutates shared demo data; runs once");
     const card = coffeeCard("Стол 3", "Абая");
@@ -225,7 +218,7 @@ test.describe("other sections", () => {
   });
 
   test("reports preview and export a CSV without formulas leaking", async ({ page }) => {
-    await signIn(page, accounts.viewer);
+    await signIn(page, accounts.manager);
     await page.goto("/app/reports?dimension=locations");
     await expect(page.getByRole("cell", { name: "Итого" })).toBeVisible();
 
@@ -258,7 +251,7 @@ test.describe("other sections", () => {
 
   test("support tickets are filed and listed", async ({ page, isMobile }) => {
     test.skip(isMobile, "mutates shared demo data; runs once");
-    await signIn(page, accounts.viewer);
+    await signIn(page, accounts.manager);
     await page.goto("/app/support");
     await page.getByLabel("Тема", { exact: true }).fill("Нужен ещё один стикер");
     await page.getByLabel("Сообщение").fill("Для второго зала, пожалуйста.");
@@ -268,21 +261,9 @@ test.describe("other sections", () => {
     await expect(page.getByText("Как гость оставляет отзыв?")).toBeVisible();
   });
 
-  test("settings reject a fake image as a logo", async ({ page, isMobile }) => {
-    test.skip(isMobile, "file chooser flow is the same on mobile");
-    await signIn(page, accounts.owner);
-    await page.goto("/app/settings?tab=organization");
-    await page.locator("#logo-input").setInputFiles({
-      name: "logo.png",
-      mimeType: "image/png",
-      buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
-    });
-    await expect(page.getByText("Подходят только PNG, JPEG или WebP")).toBeVisible();
-  });
-
   test("password change requires the current password", async ({ page, isMobile }) => {
     test.skip(isMobile, "same form on mobile");
-    await signIn(page, accounts.viewer);
+    await signIn(page, accounts.manager);
     await page.goto("/app/settings?tab=security");
     await page.getByLabel("Текущий пароль").fill("not-my-password");
     await page.getByLabel("Новый пароль", { exact: true }).fill("Совсем-новый-пароль-1");

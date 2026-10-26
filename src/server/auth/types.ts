@@ -1,7 +1,7 @@
 import type { OrgRole } from "@/features/team/schemas";
 import type { User } from "@/features/users/schemas";
 
-export type SessionUser = Pick<User, "id" | "email" | "name" | "platformRole">;
+export type SessionUser = Pick<User, "id" | "email" | "name" | "platformRole" | "mustChangePassword">;
 
 export type Impersonation = {
   organizationId: string;
@@ -70,6 +70,11 @@ export interface AuthService {
   /** One-time token from the email; on success every session of the user is revoked. */
   resetPassword(token: string, newPassword: string): Promise<{ ok: boolean }>;
   getInvitation(token: string): Promise<InvitationPreview | null>;
+  /**
+   * Generates a temporary password, sets it and ends every session of the user.
+   * The user must change it at the next sign-in. Returns null when there is no such user.
+   */
+  issueTemporaryPassword(userId: string): Promise<string | null>;
   /** Read-only view of a client cabinet for platform staff; ends by itself after `ttlMs`. */
   startImpersonation(sessionId: string, organizationId: string, ttlMs: number): Promise<Impersonation>;
   /** Returns the impersonation that was active (even if it had just expired), or null. */

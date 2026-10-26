@@ -14,8 +14,8 @@ const TODAY = "2026-10-17";
 let container: Container;
 let admin: Services["admin"];
 let adminCtx: AdminContext;
-let supportCtx: AdminContext;
-let superCtx: AdminContext;
+/** The second administrator (the team is two people). */
+let partnerCtx: AdminContext;
 
 beforeEach(async () => {
   container = createMockContainer(createSeedData({ now: NOW }), () => NOW);
@@ -31,8 +31,7 @@ beforeEach(async () => {
     return { userId: user!.id, role: user!.platformRole!, sessionId: signIn.session.token.split(".")[0]! };
   };
   adminCtx = await ctxFor("admin@taptogo.kz");
-  supportCtx = await ctxFor("support@taptogo.kz");
-  superCtx = await ctxFor("superadmin@taptogo.kz");
+  partnerCtx = await ctxFor("admin2@taptogo.kz");
 });
 
 const orgId = async (name: string) =>
@@ -61,8 +60,7 @@ describe("client wizard", () => {
   };
 
   it("creates organization, locations, verified 2GIS target, subscription and owner invitation", async () => {
-    const { organization: org, inviteSent } = await admin.clients.create(adminCtx, input);
-    expect(inviteSent).toBe(true);
+    const org = await admin.clients.create(adminCtx, input);
     const repos = container.repositories;
 
     const locations = await repos.locations.list({ organizationId: org.id });
@@ -83,7 +81,7 @@ describe("client wizard", () => {
     expect(await repos.invitations.listByOrganization(org.id)).toEqual([
       expect.objectContaining({ email: "owner@shashlyk.kz", role: "OWNER" }),
     ]);
-    expect(container.devOutbox?.list()[0]?.to).toBe("owner@shashlyk.kz");
+    expect(container.outbox?.list()[0]?.to).toBe("owner@shashlyk.kz");
   });
 
   it("rejects a malformed 2GIS link before creating anything", async () => {
@@ -95,10 +93,6 @@ describe("client wizard", () => {
       }),
     ).rejects.toMatchObject({ code: "VALIDATION" });
     expect(await container.repositories.organizations.list()).toHaveLength(before);
-  });
-
-  it("is admin-only", async () => {
-    await expect(admin.clients.create(supportCtx, input)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 
@@ -169,13 +163,10 @@ describe("batches and cards", () => {
     });
   });
 
-  it("lets support pause or mark lost, but not revoke or release", async () => {
+  it("pauses a card, then releases it back to the pool", async () => {
     const [card] = await container.repositories.cards.list({ statuses: ["ACTIVE"] });
-    await admin.cards.setStatus(supportCtx, [card!.id], "PAUSED");
+    await admin.cards.setStatus(adminCtx, [card!.id], "PAUSED");
     expect((await container.repositories.cards.findById(card!.id))?.status).toBe("PAUSED");
-    await expect(admin.cards.setStatus(supportCtx, [card!.id], "REVOKED")).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
 
     await admin.cards.setStatus(adminCtx, [card!.id], "UNASSIGNED");
     expect(await container.repositories.cards.findById(card!.id)).toMatchObject({
@@ -266,16 +257,16 @@ describe("integrations", () => {
 });
 
 describe("inbox", () => {
-  it("lets support work tickets and leave internal comments", async () => {
+  it("lets an administrator work tickets and leave internal comments", async () => {
     const [ticket] = await admin.inbox.tickets(["NEW"]);
-    await admin.inbox.updateTicket(supportCtx, ticket!.id, {
+    await admin.inbox.updateTicket(partnerCtx, ticket!.id, {
       status: "IN_PROGRESS",
-      assigneeId: supportCtx.userId,
+      assigneeId: partnerCtx.userId,
     });
-    await admin.inbox.addComment(supportCtx, "TICKET", ticket!.id, "Позвонил клиенту");
+    await admin.inbox.addComment(partnerCtx, "TICKET", ticket!.id, "Позвонил клиенту");
 
     const detail = await admin.inbox.ticket(ticket!.id);
-    expect(detail?.ticket).toMatchObject({ status: "IN_PROGRESS", assigneeId: supportCtx.userId });
+    expect(detail?.ticket).toMatchObject({ status: "IN_PROGRESS", assigneeId: partnerCtx.userId });
     expect(detail?.comments.at(-1)?.body).toBe("Позвонил клиенту");
   });
 
@@ -291,14 +282,13 @@ describe("inbox", () => {
 });
 
 describe("staff", () => {
-  it("creates staff without a password and emails a set-password link", async () => {
-    const user = await admin.staff.create(superCtx, {
+  it("creates an administrator without a password and queues a set-password link", async () => {
+    const user = await admin.staff.create(adminCtx, {
       email: "new.admin@taptogo.kz",
       name: "Новый Админ",
-      role: "ADMIN",
     });
     expect(user.platformRole).toBe("ADMIN");
-    expect(container.devOutbox?.list()[0]).toMatchObject({
+    expect(container.outbox?.list()[0]).toMatchObject({
       to: "new.admin@taptogo.kz",
       tag: "password_reset",
     });
@@ -313,16 +303,17 @@ describe("staff", () => {
     ).toBe(false);
   });
 
-  it("protects self-changes and the last super admin; is SUPER_ADMIN only", async () => {
-    await expect(admin.staff.setRole(superCtx, superCtx.userId, "ADMIN")).rejects.toMatchObject({
+  it("protects self-changes and the last active administrator", async () => {
+    await expect(admin.staff.setStatus(adminCtx, adminCtx.userId, "BLOCKED")).rejects.toMatchObject({
       code: "CONFLICT",
     });
-    await expect(admin.staff.setStatus(adminCtx, supportCtx.userId, "BLOCKED")).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
 
-    await admin.staff.setStatus(superCtx, supportCtx.userId, "BLOCKED");
-    expect((await container.repositories.users.findById(supportCtx.userId))?.status).toBe("BLOCKED");
+    // With the partner and the former admin blocked, nobody else could sign in: refused.
+    await admin.staff.setStatus(adminCtx, partnerCtx.userId, "BLOCKED");
+    expect((await container.repositories.users.findById(partnerCtx.userId))?.status).toBe("BLOCKED");
+    await expect(admin.staff.setStatus(partnerCtx, adminCtx.userId, "BLOCKED")).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
   });
 });
 
@@ -330,11 +321,11 @@ describe("impersonation", () => {
   it("opens a read-only cabinet that ends after 30 minutes, with audit entries", async () => {
     const coffee = await orgId("Coffee");
     const session = await container.auth.signIn(
-      { email: "support@taptogo.kz", password: DEMO_PASSWORD },
+      { email: "admin2@taptogo.kz", password: DEMO_PASSWORD },
       { ip: "imp", userAgent: null },
     );
     if (!session.ok) throw new Error();
-    const ctx = { ...supportCtx, sessionId: session.session.token.split(".")[0]! };
+    const ctx = { ...partnerCtx, sessionId: session.session.token.split(".")[0]! };
 
     await admin.clients.startImpersonation(ctx, coffee);
     expect((await container.auth.getSession(session.session.token))?.impersonation?.organizationId).toBe(
@@ -357,10 +348,9 @@ describe("overview and settings", () => {
     expect(data.newLeads.length).toBeGreaterThan(0);
   });
 
-  it("updates settings only for SUPER_ADMIN, de-duplicating domains", async () => {
+  it("updates settings, de-duplicating domains", async () => {
     const settings = await admin.settings.get();
-    await expect(admin.settings.update(adminCtx, settings)).rejects.toMatchObject({ code: "FORBIDDEN" });
-    const updated = await admin.settings.update(superCtx, {
+    const updated = await admin.settings.update(adminCtx, {
       ...settings,
       allowedRedirectDomains: ["2gis.kz", "2GIS.kz", "google.com"],
       graceDays: 10,
@@ -384,7 +374,7 @@ describe("consistency under concurrency and failures", () => {
 
     const results = await Promise.allSettled([
       admin.cards.assign(adminCtx, cards, coffee, null),
-      admin.cards.assign(superCtx, cards, beauty, null),
+      admin.cards.assign(partnerCtx, cards, beauty, null),
     ]);
     expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
     const owners = new Set(
@@ -408,10 +398,8 @@ describe("consistency under concurrency and failures", () => {
     });
   });
 
-  it("keeps the new client when the owner's invitation email fails, and says so", async () => {
-    container.email.send = () => Promise.reject(new Error("smtp down"));
-    const before = (await container.repositories.organizations.list()).length;
-    const { organization, inviteSent } = await createServices(container).admin.clients.create(adminCtx, {
+  it("queues the owner's invitation for manual sending instead of e-mailing it", async () => {
+    const organization = await createServices(container).admin.clients.create(adminCtx, {
       organization: {
         name: "Без почты",
         legalName: null,
@@ -424,9 +412,36 @@ describe("consistency under concurrency and failures", () => {
       owner: { email: "owner@nomail.kz" },
       subscription: { plan: "START", paidUntil: "2026-11-17", trial: true },
     });
-    expect(inviteSent).toBe(false);
-    expect(await container.repositories.organizations.list()).toHaveLength(before + 1);
-    // The invitation is stored, so a resend from the client page replaces it.
+    // Stored and queued: the admin copies the link from /admin/outbox.
     expect(await container.repositories.invitations.listByOrganization(organization.id)).toHaveLength(1);
+    expect(container.outbox.list()[0]).toMatchObject({ to: "owner@nomail.kz", tag: "invitation" });
+  });
+});
+
+describe("temporary passwords from the admin panel", () => {
+  it("is issued only to a member of that client, never to the administrator themselves", async () => {
+    const coffee = await orgId("Coffee");
+    const member = (await container.repositories.users.findByEmail("manager@coffeepoint.kz"))!;
+
+    await expect(
+      admin.clients.issueTemporaryPassword(adminCtx, coffee, adminCtx.userId),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    await expect(
+      admin.clients.issueTemporaryPassword(adminCtx, await orgId("Aru"), member.id),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("returns the password once and records the event without the password itself", async () => {
+    const coffee = await orgId("Coffee");
+    const member = (await container.repositories.users.findByEmail("manager@coffeepoint.kz"))!;
+    const password = await admin.clients.issueTemporaryPassword(adminCtx, coffee, member.id);
+
+    expect(password).toMatch(/^[A-Za-z0-9]{12}$/);
+    const { items } = await container.repositories.auditLogs.list({ organizationId: coffee }, { limit: 20 });
+    const entry = items.find((e) => e.action === "user.temporary_password");
+    expect(entry).toMatchObject({ actorUserId: adminCtx.userId, entityId: member.id });
+    expect(JSON.stringify(items)).not.toContain(password);
   });
 });

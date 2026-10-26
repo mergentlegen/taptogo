@@ -11,6 +11,7 @@ import {
   Nfc,
   Plug,
   ScrollText,
+  Send,
   Settings,
   UserCog,
   Users,
@@ -21,6 +22,7 @@ import {
 import type { Route } from "next";
 import type { Messages } from "next-intl";
 
+import { features } from "@/config/features";
 import type { OrgPermission, PlatformPermission } from "@/server/permissions";
 
 export type AppNavKey = keyof Messages["nav"]["app"];
@@ -77,12 +79,22 @@ export const adminNavigation: { group: AdminNavGroupKey; items: AdminNavItem[] }
     items: [
       { key: "support", href: "/admin/support", icon: LifeBuoy, permission: "admin.access" },
       { key: "leads", href: "/admin/leads", icon: Inbox, permission: "admin.access" },
+      { key: "outbox", href: "/admin/outbox", icon: Send, permission: "admin.manage" },
     ],
   },
   {
     group: "system",
     items: [
-      { key: "integrations", href: "/admin/integrations", icon: Plug, permission: "admin.access" },
+      ...(features.twogisApi
+        ? [
+            {
+              key: "integrations" as const,
+              href: "/admin/integrations" as const,
+              icon: Plug,
+              permission: "admin.access" as const,
+            },
+          ]
+        : []),
       { key: "staff", href: "/admin/staff", icon: UserCog, permission: "admin.staff.manage" },
       { key: "audit", href: "/admin/audit", icon: ScrollText, permission: "admin.access" },
       { key: "settings", href: "/admin/settings", icon: Settings, permission: "admin.settings.manage" },

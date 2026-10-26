@@ -16,6 +16,7 @@ import {
   ClientActions,
   InviteToClientDialog,
 } from "@/features/admin/components/client-actions";
+import { TemporaryPasswordButton } from "@/features/admin/components/temporary-password-button";
 import { CardStatusBadge } from "@/features/cards/components/card-status-badge";
 import { formatDateTime, formatIsoDate, formatKzt, formatNumber, formatRating } from "@/lib/format";
 import { searchParam } from "@/lib/period";
@@ -220,7 +221,12 @@ export default async function AdminClientPage({
         )}
         <SimpleTable
           empty={empty}
-          headers={[t("team.columns.member"), t("team.columns.role"), t("team.columns.lastLogin")]}
+          headers={[
+            t("team.columns.member"),
+            t("team.columns.role"),
+            t("team.columns.lastLogin"),
+            ...(canManage ? [t("adm.members.column")] : []),
+          ]}
           rows={detail.members.map((m) => [
             <span key="m">
               <span className="font-medium">{m.name}</span>
@@ -228,6 +234,9 @@ export default async function AdminClientPage({
             </span>,
             t(`roles.${m.role}`),
             m.lastLoginAt ? formatDateTime(m.lastLoginAt) : t("team.never"),
+            ...(canManage && org.status !== "ARCHIVED"
+              ? [<TemporaryPasswordButton key="p" organizationId={org.id} userId={m.userId} name={m.name} />]
+              : []),
           ])}
         />
         {detail.invitations.length > 0 && (

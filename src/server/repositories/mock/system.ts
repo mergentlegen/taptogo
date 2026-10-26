@@ -1,9 +1,5 @@
-import type {
-  AuditLogRepository,
-  NotificationSettingRepository,
-  PlatformSettingsRepository,
-} from "../system";
-import { applyPatch, clone, cloneOrNull, type MockContext } from "./context";
+import type { AuditLogRepository, PlatformSettingsRepository } from "../system";
+import { applyPatch, clone, type MockContext } from "./context";
 
 export function mockAuditLogRepository({ db, clock, newId }: MockContext): AuditLogRepository {
   return {
@@ -34,28 +30,6 @@ export function mockAuditLogRepository({ db, clock, newId }: MockContext): Audit
       const items = matching.slice(start, start + limit);
       const hasMore = start + limit < matching.length;
       return { items: clone(items), nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
-    },
-  };
-}
-
-export function mockNotificationSettingRepository({ db }: MockContext): NotificationSettingRepository {
-  return {
-    async find(userId, organizationId) {
-      return cloneOrNull(
-        db.notificationSettings.find((s) => s.userId === userId && s.organizationId === organizationId),
-      );
-    },
-    async listEnabled(kind) {
-      return clone(db.notificationSettings.filter((s) => s[kind]));
-    },
-    async upsert(setting) {
-      const index = db.notificationSettings.findIndex(
-        (s) => s.userId === setting.userId && s.organizationId === setting.organizationId,
-      );
-      const row = clone(setting);
-      if (index === -1) db.notificationSettings.push(row);
-      else db.notificationSettings[index] = row;
-      return clone(row);
     },
   };
 }

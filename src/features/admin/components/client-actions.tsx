@@ -239,7 +239,7 @@ export function InviteToClientDialog({ organizationId }: { organizationId: strin
   type Values = z.input<typeof inviteToClientSchema>;
   const form = useForm<Values, unknown, z.output<typeof inviteToClientSchema>>({
     resolver: zodResolver(inviteToClientSchema),
-    defaultValues: { organizationId, email: "", role: "OWNER" },
+    defaultValues: { organizationId, email: "", role: "MANAGER" },
   });
   const role = useWatch({ control: form.control, name: "role" });
 

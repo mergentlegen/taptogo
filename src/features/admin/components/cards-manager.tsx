@@ -34,7 +34,6 @@ import { assignCardsAction, bulkCardStatusAction } from "../actions";
 
 const helper = createColumnHelper<typeof dataTableFeatures, AdminCardRow>();
 const ALL = "all";
-const SUPPORT_STATUSES: CardStatus[] = ["ACTIVE", "PAUSED", "LOST"];
 
 type Org = { id: string; name: string; locations: { id: string; name: string }[] };
 type Batch = { id: string; name: string; quantity: number };
@@ -49,7 +48,6 @@ export function CardsManager({
   organizations,
   batches,
   canManage,
-  canChangeStatus,
 }: {
   cards: AdminCardRow[];
   /** All matches on the server; `cards` holds at most the first page of them. */
@@ -58,7 +56,6 @@ export function CardsManager({
   organizations: Org[];
   batches: Batch[];
   canManage: boolean;
-  canChangeStatus: boolean;
 }) {
   const t = useTranslations();
   const router = useRouter();
@@ -84,7 +81,7 @@ export function CardsManager({
     });
 
   const columns = helper.columns([
-    ...(canChangeStatus || canManage
+    ...(canManage
       ? [
           helper.display({
             id: "select",
@@ -231,26 +228,23 @@ export function CardsManager({
               {t("adm.cards.selected", { count: selected.size })}
             </span>
             {canManage && (
-              <AssignDialog
-                organizations={organizations}
-                batches={batches}
-                selectedIds={[...selected]}
-                onDone={() => setSelected(new Set())}
-              />
-            )}
-            {canChangeStatus && (
-              <StatusDialog
-                cardIds={selectedCards.map((c) => c.id)}
-                statuses={canManage ? [...cardStatuses] : SUPPORT_STATUSES}
-                onDone={() => setSelected(new Set())}
-              />
+              <>
+                <AssignDialog
+                  organizations={organizations}
+                  batches={batches}
+                  selectedIds={[...selected]}
+                  onDone={() => setSelected(new Set())}
+                />
+                <StatusDialog
+                  cardIds={selectedCards.map((c) => c.id)}
+                  statuses={[...cardStatuses]}
+                  onDone={() => setSelected(new Set())}
+                />
+              </>
             )}
           </div>
         }
       />
-      {!canManage && canChangeStatus && (
-        <p className="text-sm text-muted-foreground">{t("adm.cards.supportHint")}</p>
-      )}
     </div>
   );
 }

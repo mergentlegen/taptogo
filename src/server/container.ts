@@ -7,12 +7,10 @@ import { getMockDatabase, type MockDatabase } from "@/mocks/db";
 import { DEMO_INVITATION_TOKEN, DEMO_PASSWORD, demoAccounts } from "@/mocks/seed";
 import { MockAuthService } from "@/server/auth/mock-auth-service";
 import type { AuthService, ClientInfo, SignInResult } from "@/server/auth/types";
-import { ConsoleEmailProvider } from "@/server/providers/email/console";
-import type { DevOutbox, EmailProvider } from "@/server/providers/email/types";
+import { ManualOutbox } from "@/server/providers/email/manual";
+import type { EmailProvider } from "@/server/providers/email/types";
 import { MockReviewsProvider } from "@/server/providers/reviews/mock";
 import type { ReviewsProvider } from "@/server/providers/reviews/types";
-import { LocalMockStorageProvider } from "@/server/providers/storage/memory";
-import type { StorageProvider } from "@/server/providers/storage/types";
 import type { Repositories } from "@/server/repositories";
 import { createMockRepositories } from "@/server/repositories/mock";
 import { InMemoryRateLimiter, type RateLimiter } from "@/server/security/rate-limiter";
@@ -43,9 +41,8 @@ export type Container = {
   rateLimiter: RateLimiter;
   email: EmailProvider;
   reviews: ReviewsProvider;
-  storage: StorageProvider;
-  /** Present only with the console email provider (development). */
-  devOutbox: DevOutbox | null;
+  /** Messages waiting for manual sending by an administrator (/admin/outbox). */
+  outbox: ManualOutbox;
   /** Demo accounts for the dev "Sign in as…" block; null outside mock mode. */
   demo: DemoInfo | null;
   clock: () => Date;
@@ -73,7 +70,7 @@ export function getContainer(): Container {
 export function createMockContainer(db: MockDatabase, clock: () => Date = () => new Date()): Container {
   const env = getEnv();
   const repositories = createMockRepositories({ db, clock, newId: () => crypto.randomUUID() });
-  const email = new ConsoleEmailProvider(clock);
+  const outbox = new ManualOutbox(clock);
   // One in-memory store serves both; Supabase will use two clients here.
   const systemRepositories = repositories;
   const audit = new AuditService(repositories.auditLogs);
@@ -81,7 +78,7 @@ export function createMockContainer(db: MockDatabase, clock: () => Date = () => 
   const rateLimiter = new InMemoryRateLimiter(clock);
   const auth = new MockAuthService({
     repositories: systemRepositories,
-    email,
+    email: outbox,
     rateLimiter,
     audit: systemAudit,
     clock,
@@ -116,10 +113,9 @@ export function createMockContainer(db: MockDatabase, clock: () => Date = () => 
     audit,
     systemAudit,
     rateLimiter,
-    email,
+    email: outbox,
     reviews: new MockReviewsProvider(lookupFirm, clock),
-    storage: new LocalMockStorageProvider(),
-    devOutbox: email,
+    outbox,
     demo: {
       password: DEMO_PASSWORD,
       accounts: demoAccounts,

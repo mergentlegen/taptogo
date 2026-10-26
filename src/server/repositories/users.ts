@@ -4,7 +4,10 @@ import type { User } from "@/features/users/schemas";
 import type { NewEntity } from "./common";
 
 export type UserPatch = Partial<
-  Pick<User, "name" | "phone" | "platformRole" | "status" | "totpEnabled" | "lastLoginAt">
+  Pick<
+    User,
+    "name" | "phone" | "platformRole" | "status" | "totpEnabled" | "mustChangePassword" | "lastLoginAt"
+  >
 >;
 
 export interface UserRepository {

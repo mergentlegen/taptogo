@@ -269,10 +269,10 @@ describe("providers", () => {
     expect(await container.reviews.resolveFirm("https://evil.com/firm/1")).toBeNull();
   });
 
-  it("captures emails in the dev outbox", async () => {
+  it("captures queued emails in the manual outbox", async () => {
     const container = createMockContainer(createSeedData({ now: NOW }), () => NOW);
     await container.email.send({ to: "a@b.kz", subject: "Тест", text: "Привет", tag: "invitation" });
 
-    expect(container.devOutbox?.list()).toMatchObject([{ to: "a@b.kz", subject: "Тест" }]);
+    expect(container.outbox?.list()).toMatchObject([{ to: "a@b.kz", subject: "Тест" }]);
   });
 });

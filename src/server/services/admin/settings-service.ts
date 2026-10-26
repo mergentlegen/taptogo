@@ -4,7 +4,7 @@ import type { AuditService } from "@/server/services/audit-service";
 
 import { assertAdmin, type AdminContext } from "./context";
 
-/** Allowlist, grace period and plans — SUPER_ADMIN only, every change audited. */
+/** Allowlist, grace period and plans — administrators only, every change audited. */
 export class AdminSettingsService {
   constructor(
     private readonly repositories: Repositories,

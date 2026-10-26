@@ -5,7 +5,6 @@ import type { Card } from "@/features/cards/schemas";
 import type { Employee } from "@/features/employees/schemas";
 import type { Lead } from "@/features/leads/schemas";
 import type { Location, RatingSnapshot } from "@/features/locations/schemas";
-import type { NotificationSetting } from "@/features/notifications/schemas";
 import type { Organization } from "@/features/organizations/schemas";
 import type { PlatformSettings } from "@/features/platform/schemas";
 import type { Payment, Subscription } from "@/features/subscriptions/schemas";
@@ -39,7 +38,6 @@ export type MockDatabase = {
   leads: Lead[];
   comments: InternalComment[];
   auditLogs: AuditLog[];
-  notificationSettings: NotificationSetting[];
   platformSettings: PlatformSettings;
 };
 

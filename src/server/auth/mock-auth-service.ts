@@ -9,6 +9,7 @@ import type { AuditService } from "@/server/services/audit-service";
 
 import { hashPassword, verifyPassword } from "./password-hash";
 import { randomToken, sha256Hex, signSessionToken, verifySessionToken } from "./session-token";
+import { generateTemporaryPassword } from "./temporary-password";
 import type {
   AcceptInvitationResult,
   AuthService,
@@ -59,11 +60,12 @@ function sameString(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-const toSessionUser = ({ id, email, name, platformRole }: User): SessionUser => ({
+const toSessionUser = ({ id, email, name, platformRole, mustChangePassword }: User): SessionUser => ({
   id,
   email,
   name,
   platformRole,
+  mustChangePassword,
 });
 
 /**
@@ -135,6 +137,17 @@ export class MockAuthService implements AuthService {
       entityType: "user",
       entityId: stored.userId,
     });
+  }
+
+  async issueTemporaryPassword(userId: string): Promise<string | null> {
+    const { repositories } = this.deps;
+    const user = await repositories.users.findById(userId);
+    if (!user) return null;
+    const password = generateTemporaryPassword();
+    this.passwordHashes.set(user.id, await hashPassword(password));
+    await repositories.users.update(user.id, { mustChangePassword: true });
+    this.revokeAll(user.id);
+    return password;
   }
 
   async getSession(token: string): Promise<Session | null> {
@@ -224,6 +237,7 @@ export class MockAuthService implements AuthService {
     }
 
     this.passwordHashes.set(user.id, await hashPassword(input.newPassword));
+    await repositories.users.update(user.id, { mustChangePassword: false });
     const now = this.now().toISOString();
     for (const session of this.sessions.values()) {
       if (session.userId === user.id && session.id !== input.currentSessionId && !session.revokedAt) {
@@ -285,6 +299,7 @@ export class MockAuthService implements AuthService {
       if (other.userId === record.userId && !other.usedAt) other.usedAt = now;
     }
     this.passwordHashes.set(record.userId, await hashPassword(newPassword));
+    await this.deps.repositories.users.update(record.userId, { mustChangePassword: false });
     this.revokeAll(record.userId);
     await this.deps.audit.record({
       actorUserId: record.userId,
@@ -341,6 +356,7 @@ export class MockAuthService implements AuthService {
         platformRole: null,
         status: "ACTIVE",
         totpEnabled: false,
+        mustChangePassword: false,
         lastLoginAt: now,
       });
       this.passwordHashes.set(user.id, await hashPassword(input.password));

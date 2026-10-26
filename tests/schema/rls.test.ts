@@ -15,7 +15,7 @@ const schema = readFileSync(
   "utf8",
 );
 
-/** What Supabase provides before our migrations run: roles, auth.uid(), storage. */
+/** What Supabase provides before our migrations run: roles and auth.uid(). */
 const supabaseStubs = `
 create role anon nologin;
 create role authenticated nologin;
@@ -31,30 +31,16 @@ create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
 
-create schema storage;
-grant usage on schema storage to anon, authenticated, service_role;
-create table storage.buckets (
-  id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]
-);
-create table storage.objects (
-  id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets (id), name text
-);
-alter table storage.objects enable row level security;
-grant all on storage.objects to authenticated, service_role;
-create function storage.foldername(name text) returns text[] language sql immutable as $$
-  select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1]
-$$;
 `;
 
 const uuid = (n: number) => `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
 const U = {
   ownerA: uuid(1),
   managerA: uuid(2),
-  viewerA: uuid(3),
   ownerB: uuid(4),
-  support: uuid(5),
   admin: uuid(6),
-  superAdmin: uuid(7),
+  /** The second administrator: the team is two people. */
+  partner: uuid(7),
 };
 const ORG_A = uuid(101);
 const ORG_B = uuid(102);
@@ -75,17 +61,15 @@ insert into auth.users (id) values ${Object.values(U)
 insert into public.users (id, email, name, platform_role) values
   ('${U.ownerA}', 'owner@a.kz', 'Owner A', null),
   ('${U.managerA}', 'manager@a.kz', 'Manager A', null),
-  ('${U.viewerA}', 'viewer@a.kz', 'Viewer A', null),
   ('${U.ownerB}', 'owner@b.kz', 'Owner B', null),
-  ('${U.support}', 'support@taptogo.kz', 'Support', 'SUPPORT'),
   ('${U.admin}', 'admin@taptogo.kz', 'Admin', 'ADMIN'),
-  ('${U.superAdmin}', 'superadmin@taptogo.kz', 'Super', 'SUPER_ADMIN');
+  ('${U.partner}', 'admin2@taptogo.kz', 'Partner', 'ADMIN');
 insert into public.organizations (id, name, contact_name, contact_phone, contact_email) values
   ('${ORG_A}', 'A', 'A', '+77010000001', 'a@a.kz'),
   ('${ORG_B}', 'B', 'B', '+77010000002', 'b@b.kz');
 insert into public.memberships (user_id, organization_id, role) values
   ('${U.ownerA}', '${ORG_A}', 'OWNER'), ('${U.managerA}', '${ORG_A}', 'MANAGER'),
-  ('${U.viewerA}', '${ORG_A}', 'VIEWER'), ('${U.ownerB}', '${ORG_B}', 'OWNER');
+  ('${U.ownerB}', '${ORG_B}', 'OWNER');
 insert into public.locations (id, organization_id, name, address) values
   ('${LOC_A}', '${ORG_A}', 'Филиал A', 'Алматы'), ('${LOC_B}', '${ORG_B}', 'Филиал B', 'Астана');
 insert into public.redirect_targets (id, organization_id, location_id, type, url, is_verified) values
@@ -179,7 +163,7 @@ describe("organization isolation", () => {
     const emails = (await rows<{ email: string }>("select email from public.users order by email")).map(
       (r) => r.email,
     );
-    expect(emails).toEqual(["manager@a.kz", "owner@a.kz", "viewer@a.kz"]);
+    expect(emails).toEqual(["manager@a.kz", "owner@a.kz"]);
   });
 
   it("does not let an owner change another organization's card", async () => {
@@ -214,10 +198,18 @@ describe("organization isolation", () => {
 });
 
 describe("client roles", () => {
-  it("lets a viewer read but not change cards", async () => {
-    await actAs(U.viewerA);
-    expect(await rows("select 1 from public.cards")).toHaveLength(1);
-    expect(await affected(`update public.cards set label = 'x' where id = '${CARD_A}'`)).toBe(0);
+  it("keeps platform data away from clients", async () => {
+    await actAs(U.ownerA);
+    expect(await affected("update public.platform_settings set grace_days = 1")).toBe(0);
+    await rejects(
+      `insert into public.card_batches (name, quantity, card_type) values ('x', 1, 'STICKER')`,
+      /row-level security/,
+    );
+    await rejects(
+      `insert into public.payments (organization_id, amount_kzt, paid_at, method, recorded_by_id)
+       values ('${ORG_A}', 1, now(), 'CASH', '${U.ownerA}')`,
+      /row-level security/,
+    );
   });
 
   it("lets a manager relabel, pause and report a card lost — and nothing more", async () => {
@@ -250,9 +242,18 @@ describe("client roles", () => {
   it("lets users edit only their own name and phone", async () => {
     await actAs(U.ownerA);
     expect(await affected(`update public.users set name = 'Новое' where id = '${U.ownerA}'`)).toBe(1);
-    expect(await affected(`update public.users set name = 'x' where id = '${U.viewerA}'`)).toBe(0);
+    expect(await affected(`update public.users set name = 'x' where id = '${U.managerA}'`)).toBe(0);
     await rejects(
-      `update public.users set platform_role = 'SUPER_ADMIN' where id = '${U.ownerA}'`,
+      `update public.users set platform_role = 'ADMIN' where id = '${U.ownerA}'`,
+      /only name and phone/,
+    );
+    // A temporary password cannot be lifted by its owner: only the password change (server) clears it.
+    await db.exec(
+      `reset role; select set_config('request.jwt.claim.sub', '', true); update public.users set must_change_password = true where id = '${U.ownerA}'`,
+    );
+    await actAs(U.ownerA);
+    await rejects(
+      `update public.users set must_change_password = false where id = '${U.ownerA}'`,
       /only name and phone/,
     );
   });
@@ -263,28 +264,31 @@ describe("client roles", () => {
       `delete from public.memberships where user_id = '${U.ownerA}' and organization_id = '${ORG_A}'`,
       /last owner/,
     );
-    expect(await affected(`delete from public.memberships where user_id = '${U.viewerA}'`)).toBe(1);
+    expect(await affected(`delete from public.memberships where user_id = '${U.managerA}'`)).toBe(1);
   });
 });
 
-describe("platform roles", () => {
-  it("lets support see everything and change only card status", async () => {
-    await actAs(U.support);
+describe("the administrator", () => {
+  it("sees everything and manages cards, batches and payments", async () => {
+    await actAs(U.admin);
     expect(await rows("select 1 from public.cards")).toHaveLength(3);
-    expect(await affected(`update public.cards set status = 'PAUSED' where id = '${CARD_A}'`)).toBe(1);
-    await rejects(`update public.cards set label = 'x' where id = '${CARD_A}'`, /only the status/);
-    await rejects(
-      `insert into public.card_batches (name, quantity, card_type) values ('x', 1, 'STICKER')`,
-      /row-level security/,
-    );
-    await rejects(
-      `insert into public.payments (organization_id, amount_kzt, paid_at, method, recorded_by_id)
-       values ('${ORG_A}', 1, now(), 'CASH', '${U.support}')`,
-      /row-level security/,
-    );
+    expect(
+      await affected(`update public.cards set label = 'Новое', status = 'PAUSED' where id = '${CARD_A}'`),
+    ).toBe(1);
+    expect(
+      await affected(
+        `insert into public.card_batches (name, quantity, card_type) values ('x', 1, 'STICKER')`,
+      ),
+    ).toBe(1);
+    expect(
+      await affected(
+        `insert into public.payments (organization_id, amount_kzt, paid_at, method, recorded_by_id)
+         values ('${ORG_A}', 1, now(), 'CASH', '${U.admin}')`,
+      ),
+    ).toBe(1);
   });
 
-  it("lets an admin assign cards but not touch staff or platform settings", async () => {
+  it("assigns cards, changes platform settings and blocks another administrator", async () => {
     await actAs(U.admin);
     expect(
       await affected(
@@ -292,18 +296,14 @@ describe("platform roles", () => {
          where id = '${CARD_FREE}'`,
       ),
     ).toBe(1);
-    expect(await affected("update public.platform_settings set grace_days = 1")).toBe(0);
-    expect(await affected(`update public.users set platform_role = 'ADMIN' where id = '${U.support}'`)).toBe(
-      0,
-    );
+    expect(await affected("update public.platform_settings set grace_days = 5")).toBe(1);
+    expect(await affected(`update public.users set status = 'BLOCKED' where id = '${U.partner}'`)).toBe(1);
   });
 
-  it("lets a super admin manage staff and platform settings", async () => {
-    await actAs(U.superAdmin);
-    expect(await affected("update public.platform_settings set grace_days = 5")).toBe(1);
-    expect(await affected(`update public.users set platform_role = 'ADMIN' where id = '${U.support}'`)).toBe(
-      1,
-    );
+  it("loses access as soon as the account is blocked", async () => {
+    await db.exec(`update public.users set status = 'BLOCKED' where id = '${U.partner}'`);
+    await actAs(U.partner);
+    expect(await rows("select 1 from public.cards")).toHaveLength(0);
   });
 });
 
@@ -325,14 +325,14 @@ describe("audit log", () => {
     await db.exec(
       `insert into public.audit_logs (actor_user_id, action, entity_type) values (null, 'system.test', 'system')`,
     );
-    await actAs(U.superAdmin);
+    await actAs(U.admin);
     await rejects("update public.audit_logs set action = 'x.y'", /permission denied/);
     await actAs("service");
     await rejects("delete from public.audit_logs", /permission denied|append-only/);
   });
 });
 
-describe("server-only functions and storage", () => {
+describe("server-only functions", () => {
   it("adds up daily stats atomically, for the service role only", async () => {
     await actAs("service");
     await db.query(
@@ -352,19 +352,6 @@ describe("server-only functions and storage", () => {
       `select public.increment_daily_card_stat('${CARD_A}', current_date, '${ORG_A}', null, null, 1, 1, 1, 0)`,
       /permission denied/,
     );
-  });
-
-  it("keeps logos inside the owner's organization folder", async () => {
-    await actAs(U.ownerA);
-    expect(
-      await affected(`insert into storage.objects (bucket_id, name) values ('logos', '${ORG_A}/logo.png')`),
-    ).toBe(1);
-    await rejects(
-      `insert into storage.objects (bucket_id, name) values ('logos', '${ORG_B}/logo.png')`,
-      /row-level security/,
-    );
-    await actAs(U.ownerB);
-    expect(await rows("select 1 from storage.objects")).toHaveLength(0);
   });
 });
 

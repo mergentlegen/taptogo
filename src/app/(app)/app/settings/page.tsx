@@ -5,8 +5,7 @@ import type { ReactNode } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ContactDialog } from "@/components/subscription/contact-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { NotificationSwitch } from "@/features/settings/components/notification-switch";
-import { LogoUpload, OrganizationForm } from "@/features/settings/components/organization-forms";
+import { OrganizationForm } from "@/features/settings/components/organization-forms";
 import { PasswordForm, ProfileForm } from "@/features/settings/components/profile-forms";
 import { SessionsList } from "@/features/settings/components/sessions-list";
 import { SettingsTabs } from "@/features/settings/components/settings-tabs";
@@ -41,12 +40,10 @@ export default async function SettingsPage({ searchParams }: PageProps<"/app/set
   const tab = settingsTabs.find((x) => x === requestedTab) ?? "profile";
   const canEditOrg = access.permissions.includes("org.settings.manage");
 
-  const [user, sessions, notifications, subscription, logoUrl, t] = await Promise.all([
+  const [user, sessions, subscription, t] = await Promise.all([
     services.account.profile(ctx.userId),
     services.account.sessions(ctx.userId, access.session.id),
-    services.account.notifications(ctx),
     services.subscription.view(ctx),
-    services.account.logoUrl(access.organization),
     getTranslations(),
   ]);
   const org = access.organization;
@@ -74,9 +71,6 @@ export default async function SettingsPage({ searchParams }: PageProps<"/app/set
           ),
           organization: (
             <div className="grid gap-4">
-              <Section title={t("settings.organization.logo")}>
-                <LogoUpload logoUrl={logoUrl} readOnly={!canEditOrg} />
-              </Section>
               <Section title={t("settings.organization.title")}>
                 <OrganizationForm
                   readOnly={!canEditOrg}
@@ -91,26 +85,6 @@ export default async function SettingsPage({ searchParams }: PageProps<"/app/set
                 />
               </Section>
             </div>
-          ),
-          notifications: (
-            <Section title={t("settings.notifications.title")}>
-              <div className="grid gap-5">
-                <NotificationSwitch
-                  name="weeklyReportEmail"
-                  checked={notifications.weeklyReportEmail}
-                  label={t("settings.notifications.weekly")}
-                  hint={t("settings.notifications.weeklyHint")}
-                  savedMessage={t("settings.notifications.saved")}
-                />
-                <NotificationSwitch
-                  name="lowActivityAlert"
-                  checked={notifications.lowActivityAlert}
-                  label={t("settings.notifications.lowActivity")}
-                  hint={t("settings.notifications.lowActivityHint")}
-                  savedMessage={t("settings.notifications.saved")}
-                />
-              </div>
-            </Section>
           ),
           subscription: (
             <Section title={t("settings.subscription.title")}>

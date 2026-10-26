@@ -57,26 +57,3 @@ export function invitationEmail(input: {
     ].join("\n"),
   };
 }
-
-/** Internal notice to TapToGo staff about a request from the landing page. */
-export function newLeadEmail(input: {
-  to: string;
-  lead: { name: string; phone: string; businessName: string; city: string | null; message: string | null };
-  link: string;
-}): EmailMessage {
-  const { lead } = input;
-  return {
-    to: input.to,
-    tag: "new_lead",
-    subject: t("emails.newLead.subject", { business: lead.businessName }),
-    text: [
-      t("emails.newLead.business", { value: lead.businessName }),
-      t("emails.newLead.city", { value: lead.city ?? "—" }),
-      t("emails.newLead.contact", { name: lead.name, phone: lead.phone }),
-      ...(lead.message ? ["", lead.message] : []),
-      "",
-      t("emails.newLead.action"),
-      input.link,
-    ].join("\n"),
-  };
-}

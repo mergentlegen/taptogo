@@ -28,7 +28,7 @@ async function signedInToken(email = "owner@coffeepoint.kz"): Promise<string> {
 }
 
 function lastEmailLink(): string {
-  const text = container.devOutbox?.list()[0]?.text ?? "";
+  const text = container.outbox?.list()[0]?.text ?? "";
   const link = /https?:\/\/\S+/.exec(text)?.[0];
   if (!link) throw new Error("no link in email");
   return link;
@@ -59,8 +59,8 @@ describe("sign in", () => {
   });
 
   it("refuses blocked accounts", async () => {
-    expect(await signIn("old.support@taptogo.kz", DEMO_PASSWORD)).toEqual({ ok: false, reason: "BLOCKED" });
-    expect(await signIn("old.support@taptogo.kz", "wrong")).toEqual({
+    expect(await signIn("old.admin@taptogo.kz", DEMO_PASSWORD)).toEqual({ ok: false, reason: "BLOCKED" });
+    expect(await signIn("old.admin@taptogo.kz", "wrong")).toEqual({
       ok: false,
       reason: "INVALID_CREDENTIALS",
     });
@@ -112,8 +112,8 @@ describe("sessions", () => {
   });
 
   it("drops sessions of users who get blocked", async () => {
-    const token = await signedInToken("support@taptogo.kz");
-    const user = await container.repositories.users.findByEmail("support@taptogo.kz");
+    const token = await signedInToken("admin2@taptogo.kz");
+    const user = await container.repositories.users.findByEmail("admin2@taptogo.kz");
     await container.repositories.users.update(user?.id ?? "", { status: "BLOCKED" });
 
     expect(await container.auth.getSession(token)).toBeNull();
@@ -159,12 +159,12 @@ describe("password reset", () => {
 
   it("sends nothing for unknown emails but still resolves", async () => {
     await expect(container.auth.requestPasswordReset("nobody@example.kz", client)).resolves.toBeUndefined();
-    expect(container.devOutbox?.list()).toEqual([]);
+    expect(container.outbox?.list()).toEqual([]);
   });
 
   it("caps reset emails per address", async () => {
     for (let i = 0; i < 5; i++) await container.auth.requestPasswordReset("owner@coffeepoint.kz", client);
-    expect(container.devOutbox?.list()).toHaveLength(3);
+    expect(container.outbox?.list()).toHaveLength(3);
   });
 });
 
@@ -222,7 +222,7 @@ describe("invitations", () => {
     await container.repositories.invitations.create({
       email: "manager@coffeepoint.kz",
       organizationId: beauty?.id ?? "",
-      role: "VIEWER",
+      role: "MANAGER",
       invitedById: null,
       expiresAt: new Date(START + 60 * MINUTE).toISOString(),
       acceptedAt: null,
@@ -233,5 +233,41 @@ describe("invitations", () => {
     expect(result).toMatchObject({ ok: true, session: null, organizationId: beauty?.id });
     const manager = await container.repositories.users.findByEmail("manager@coffeepoint.kz");
     expect(await container.repositories.memberships.listByUser(manager?.id ?? "")).toHaveLength(2);
+  });
+});
+
+describe("temporary passwords", () => {
+  it("works once to get in, then the person must choose their own password", async () => {
+    const memberId = (await container.repositories.users.findByEmail("manager@coffeepoint.kz"))!.id;
+    const temporary = await container.auth.issueTemporaryPassword(memberId);
+    expect(temporary).toMatch(/^[A-Za-z0-9]{12}$/);
+
+    // The old password stops working at once, and so do sessions already open.
+    expect((await signIn("manager@coffeepoint.kz", DEMO_PASSWORD)).ok).toBe(false);
+    const signedIn = await signIn("manager@coffeepoint.kz", temporary!);
+    expect(signedIn.ok).toBe(true);
+    if (!signedIn.ok) return;
+    expect((await container.auth.getSession(signedIn.session.token))?.user.mustChangePassword).toBe(true);
+
+    const changed = await container.auth.changePassword({
+      userId: memberId,
+      currentSessionId: signedIn.session.token.split(".")[0]!,
+      currentPassword: temporary!,
+      newPassword: "Мой-новый-пароль-2026",
+    });
+    expect(changed.ok).toBe(true);
+    expect((await container.repositories.users.findById(memberId))?.mustChangePassword).toBe(false);
+    expect((await signIn("manager@coffeepoint.kz", "Мой-новый-пароль-2026")).ok).toBe(true);
+  });
+
+  it("ends every session of the person when a temporary password is issued", async () => {
+    const token = await signedInToken("manager@coffeepoint.kz");
+    const memberId = (await container.repositories.users.findByEmail("manager@coffeepoint.kz"))!.id;
+    await container.auth.issueTemporaryPassword(memberId);
+    expect(await container.auth.getSession(token)).toBeNull();
+  });
+
+  it("returns nothing for an unknown user", async () => {
+    expect(await container.auth.issueTemporaryPassword("00000000-0000-4000-8000-000000000000")).toBeNull();
   });
 });

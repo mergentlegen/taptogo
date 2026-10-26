@@ -19,7 +19,7 @@ export const planConfigSchema = z.object({
 });
 export type PlanConfig = z.infer<typeof planConfigSchema>;
 
-/** Platform-wide settings edited by SUPER_ADMIN. Plans and limits live here, not in code. */
+/** Platform-wide settings edited by administrators. Plans and limits live here, not in code. */
 export const platformSettingsSchema = z.object({
   /** Hosts redirect targets may point to (exact match, "www." allowed). */
   allowedRedirectDomains: z.array(domainSchema).min(1).max(50),

@@ -24,8 +24,8 @@ export type TeamMember = {
 
 export type PendingInvitation = Invitation & { status: "PENDING" | "EXPIRED" };
 
-/** The invitation is stored even if the email fails; `emailSent` tells the caller. */
-export type InvitationResult = { invitation: Invitation; emailSent: boolean };
+/** The invitation message is queued for manual sending; the link is shown on /admin/outbox. */
+export type InvitationResult = { invitation: Invitation };
 
 export class TeamService {
   constructor(
@@ -48,7 +48,7 @@ export class TeamService {
     ]);
     const userById = new Map(users.map((u) => [u.id, u]));
     const now = this.clock().toISOString();
-    const roleOrder: Record<OrgRole, number> = { OWNER: 0, MANAGER: 1, VIEWER: 2 };
+    const roleOrder: Record<OrgRole, number> = { OWNER: 0, MANAGER: 1 };
 
     return {
       members: memberships
@@ -119,23 +119,16 @@ export class TeamService {
       after: { email, role: input.role },
     });
 
-    // The invitation already exists: a mail outage must not undo it or fail the caller's
-    // whole operation. Sending again simply replaces it with a fresh link.
-    try {
-      await this.email.send(
-        invitationEmail({
-          to: email,
-          organization: organization?.name ?? "TapToGo",
-          role: input.role,
-          link: new URL(`/invite/${token}`, getEnv().APP_URL).toString(),
-          expires,
-        }),
-      );
-      return { invitation, emailSent: true };
-    } catch (error) {
-      console.error("[team] invitation email failed", error);
-      return { invitation, emailSent: false };
-    }
+    await this.email.send(
+      invitationEmail({
+        to: email,
+        organization: organization?.name ?? "TapToGo",
+        role: input.role,
+        link: new URL(`/invite/${token}`, getEnv().APP_URL).toString(),
+        expires,
+      }),
+    );
+    return { invitation };
   }
 
   async revokeInvitation(ctx: OrgContext, invitationId: string): Promise<void> {

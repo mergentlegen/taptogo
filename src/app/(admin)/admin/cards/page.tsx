@@ -47,7 +47,6 @@ export default async function AdminCardsPage({ searchParams }: PageProps<"/admin
         batches={batches.map(({ id, name, quantity }) => ({ id, name, quantity }))}
         organizations={assignment}
         canManage={can(actor, "admin.manage")}
-        canChangeStatus={can(actor, "admin.cards.status")}
       />
     </>
   );

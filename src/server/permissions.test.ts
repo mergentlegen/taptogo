@@ -20,23 +20,25 @@ const member = (role: OrgRole): Actor => ({
   memberships: [{ organizationId: ORG_A, role }],
 });
 
-describe("platform permissions (spec section 5 matrix)", () => {
+describe("platform permissions (a single ADMIN role)", () => {
   const cases: [PlatformPermission, PlatformRole[]][] = [
-    ["admin.access", ["SUPER_ADMIN", "ADMIN", "SUPPORT"]],
-    ["admin.manage", ["SUPER_ADMIN", "ADMIN"]],
-    ["admin.cards.status", ["SUPER_ADMIN", "ADMIN", "SUPPORT"]],
-    ["admin.staff.manage", ["SUPER_ADMIN"]],
-    ["admin.settings.manage", ["SUPER_ADMIN"]],
+    ["admin.access", ["ADMIN"]],
+    ["admin.manage", ["ADMIN"]],
+    ["admin.cards.status", ["ADMIN"]],
+    ["admin.inbox", ["ADMIN"]],
+    ["admin.impersonate", ["ADMIN"]],
+    ["admin.staff.manage", ["ADMIN"]],
+    ["admin.settings.manage", ["ADMIN"]],
   ];
 
   it.each(cases)("%s is granted exactly to %j", (permission, granted) => {
-    for (const role of ["SUPER_ADMIN", "ADMIN", "SUPPORT"] as const) {
+    for (const role of ["ADMIN"] as const) {
       expect(can(staff(role), permission)).toBe(granted.includes(role));
     }
   });
 
   it("is never granted to client users", () => {
-    for (const role of ["OWNER", "MANAGER", "VIEWER"] as const) {
+    for (const role of ["OWNER", "MANAGER"] as const) {
       expect(can(member(role), "admin.access")).toBe(false);
     }
   });
@@ -44,7 +46,9 @@ describe("platform permissions (spec section 5 matrix)", () => {
 
 describe("organization permissions", () => {
   const cases: [OrgPermission, OrgRole[]][] = [
-    ["org.view", ["OWNER", "MANAGER", "VIEWER"]],
+    ["org.view", ["OWNER", "MANAGER"]],
+    ["org.export", ["OWNER", "MANAGER"]],
+    ["org.support", ["OWNER", "MANAGER"]],
     ["org.cards.manage", ["OWNER", "MANAGER"]],
     ["org.employees.manage", ["OWNER", "MANAGER"]],
     ["org.team.manage", ["OWNER"]],
@@ -52,23 +56,23 @@ describe("organization permissions", () => {
   ];
 
   it.each(cases)("%s is granted exactly to %j", (permission, granted) => {
-    for (const role of ["OWNER", "MANAGER", "VIEWER"] as const) {
+    for (const role of ["OWNER", "MANAGER"] as const) {
       expect(can(member(role), permission, { organizationId: ORG_A })).toBe(granted.includes(role));
     }
   });
 
   it("never grants anything in another organization", () => {
-    for (const role of ["OWNER", "MANAGER", "VIEWER"] as const) {
+    for (const role of ["OWNER", "MANAGER"] as const) {
       expect(orgPermissionsFor(member(role), ORG_B)).toEqual([]);
     }
   });
 
   it("does not give platform staff client access by role alone", () => {
-    expect(can(staff("SUPER_ADMIN"), "org.view", { organizationId: ORG_A })).toBe(false);
+    expect(can(staff("ADMIN"), "org.view", { organizationId: ORG_A })).toBe(false);
   });
 
   it("lets impersonating staff only view that one organization", () => {
-    const actor: Actor = { ...staff("SUPPORT"), impersonation: { organizationId: ORG_A } };
+    const actor: Actor = { ...staff("ADMIN"), impersonation: { organizationId: ORG_A } };
 
     expect(orgPermissionsFor(actor, ORG_A)).toEqual(["org.view"]);
     expect(can(actor, "org.view", { organizationId: ORG_B })).toBe(false);
@@ -79,7 +83,7 @@ describe("organization permissions", () => {
       platformRole: null,
       memberships: [
         { organizationId: ORG_A, role: "OWNER" },
-        { organizationId: ORG_B, role: "VIEWER" },
+        { organizationId: ORG_B, role: "MANAGER" },
       ],
     };
 

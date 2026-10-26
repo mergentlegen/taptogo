@@ -1,4 +1,4 @@
-# Переход с моков на Supabase, Resend и 2ГИС
+# Переход с моков на Supabase и 2ГИС
 
 Пошаговый план для разработчика, который будет подключать реальные сервисы. Сейчас всё работает на данных в памяти процесса (`DATA_SOURCE=mock`). Устройство слоёв описано в [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -6,14 +6,13 @@
 
 Страницы, Server Actions и сервисы **не меняются**. Они получают интерфейсы из `src/server/container.ts`, и почти вся работа сводится к новым реализациям этих интерфейсов:
 
-| Интерфейс                                                    | Сейчас                     | После                                       |
-| ------------------------------------------------------------ | -------------------------- | ------------------------------------------- |
-| `Repositories` (`src/server/repositories/index.ts`), 20 штук | `repositories/mock/*`      | `repositories/supabase/*`                   |
-| `AuthService` (`src/server/auth/types.ts`)                   | `MockAuthService`          | `SupabaseAuthService` (Supabase Auth)       |
-| `StorageProvider` (`src/server/providers/storage/types.ts`)  | `LocalMockStorageProvider` | `SupabaseStorageProvider`                   |
-| `EmailProvider` (`src/server/providers/email/types.ts`)      | `ConsoleEmailProvider`     | `ResendEmailProvider`                       |
-| `ReviewsProvider` (`src/server/providers/reviews/types.ts`)  | `MockReviewsProvider`      | `TwoGisReviewsProvider` (2ГИС API)          |
-| `RateLimiter` (`src/server/security/rate-limiter.ts`)        | `InMemoryRateLimiter`      | Redis/Upstash, когда серверов больше одного |
+| Интерфейс                                                    | Сейчас                                       | После                                                                             |
+| ------------------------------------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------- |
+| `Repositories` (`src/server/repositories/index.ts`), 20 штук | `repositories/mock/*`                        | `repositories/supabase/*`                                                         |
+| `AuthService` (`src/server/auth/types.ts`)                   | `MockAuthService`                            | `SupabaseAuthService` (Supabase Auth)                                             |
+| `EmailProvider` (`src/server/providers/email/types.ts`)      | `ManualOutbox` (очередь для ручной отправки) | очередь в таблице `outbox_messages` (Resend — только если понадобится автоматика) |
+| `ReviewsProvider` (`src/server/providers/reviews/types.ts`)  | `MockReviewsProvider`                        | `TwoGisReviewsProvider` (2ГИС API)                                                |
+| `RateLimiter` (`src/server/security/rate-limiter.ts`)        | `InMemoryRateLimiter`                        | Redis/Upstash, когда серверов больше одного                                       |
 
 Каждый шаг ниже можно сделать и проверить отдельно. Моки остаются в коде: на них работают unit-тесты и локальная разработка без интернета.
 
@@ -26,15 +25,14 @@
 2. **Переменные окружения.** Добавить в `envSchema` новые переменные. В `superRefine` сделать их обязательными, когда `DATA_SOURCE=supabase`.
    - Файлы: `src/env.core.ts`, `.env.example`.
 
-   | Переменная                                   | Где используется             | Секрет    |
-   | -------------------------------------------- | ---------------------------- | --------- |
-   | `DATA_SOURCE=supabase`                       | `container.ts`               | нет       |
-   | `SUPABASE_URL`                               | клиенты Supabase             | нет       |
-   | `SUPABASE_PUBLISHABLE_KEY` (бывший anon key) | клиент от имени пользователя | нет       |
-   | `SUPABASE_SECRET_KEY` (бывший service_role)  | системный клиент             | **да**    |
-   | `RESEND_API_KEY`, `EMAIL_FROM`               | `ResendEmailProvider`        | ключ — да |
-   | `TWOGIS_API_KEY`                             | `TwoGisReviewsProvider`      | **да**    |
-   | `CRON_SECRET`                                | защита cron-маршрутов        | **да**    |
+   | Переменная                                   | Где используется             | Секрет |
+   | -------------------------------------------- | ---------------------------- | ------ |
+   | `DATA_SOURCE=supabase`                       | `container.ts`               | нет    |
+   | `SUPABASE_URL`                               | клиенты Supabase             | нет    |
+   | `SUPABASE_PUBLISHABLE_KEY` (бывший anon key) | клиент от имени пользователя | нет    |
+   | `SUPABASE_SECRET_KEY` (бывший service_role)  | системный клиент             | **да** |
+   | `TWOGIS_API_KEY`                             | `TwoGisReviewsProvider`      | **да** |
+   | `CRON_SECRET`                                | защита cron-маршрутов        | **да** |
 
    Префикс `NEXT_PUBLIC_` не нужен ни одной переменной. Браузер не обращается к Supabase напрямую: все запросы идут через сервер (Server Components, Server Actions, route handlers). Это стоит сохранить, тогда секреты и даже publishable key не попадают в клиентский бандл, а CSP `connect-src 'self'` не меняется.
 
@@ -46,12 +44,11 @@
    - `0001_types_and_tables.sql` — перечисления, таблицы, индексы, `platform_settings`;
    - `0002_rls.sql` — схема `private`, функции-помощники, `enable row level security`, политики;
    - `0003_guards.sql` — триггеры-охранники и `increment_daily_card_stat`;
-   - `0004_storage.sql` — bucket `logos` и его политики;
-   - `0005_analytics_rpc.sql` — RPC для тепловой карты и разбивок (см. шаг 2).
+   - `0004_analytics_rpc.sql` — RPC для тепловой карты и разбивок (см. шаг 2).
 4. Сгенерировать типы: `supabase gen types typescript --local > src/server/supabase/database.types.ts`.
 5. **Тесты RLS.** Уже сейчас `tests/schema/rls.test.ts` выполняет `schema.sql` в PGlite (настоящий Postgres в WASM) поверх заглушек Supabase и проверяет политики от лица каждой роли — это часть `pnpm test`. На реальном проекте те же сценарии стоит повторить на pgTAP (`supabase test db`, файлы в `supabase/tests/`), потому что заглушки `auth` и `storage` упрощены. Минимальный набор повторяет раздел 10 ТЗ:
    - OWNER организации A не видит и не меняет карточки, сотрудников, касания и статистику организации B;
-   - VIEWER не может изменить карточку, MANAGER — команду, SUPPORT — партию;
+   - MANAGER не может изменить команду и данные организации; клиент не может создать партию или внести платёж;
    - клиент не может поменять у карточки `organization_id`, `code` или поставить `REVOKED`;
    - в `audit_logs` нельзя выполнить `UPDATE`/`DELETE` ни одной ролью;
    - нельзя удалить последнего OWNER.
@@ -128,6 +125,7 @@
 | `listSessions`, `revokeSession`           | RPC с `security definer` над `auth.sessions` (только `user_id = auth.uid()`). Перед внедрением сверить с текущей документацией Supabase: схема `auth` принадлежит Supabase.                                                                                                                        |
 | `requestPasswordReset`                    | `auth.admin.generateLink({ type: "recovery" })` системным клиентом. Ссылку собираем сами и отправляем **нашим** шаблоном через `EmailProvider`, а не письмом Supabase. Лимиты по email и IP остаются.                                                                                              |
 | `resetPassword`                           | `verifyOtp({ type: "recovery", token_hash })` → `updateUser({ password })` → `signOut({ scope: "global" })`                                                                                                                                                                                        |
+| `issueTemporaryPassword`                  | `auth.admin.updateUserById(id, { password })` с временным паролем, `users.must_change_password = true`, затем `auth.admin.signOut(id, "global")`. Пароль возвращается один раз админу и нигде не логируется.                                                                                       |
 | `changePassword`                          | Проверить текущий пароль через `signInWithPassword` на отдельном клиенте без cookie → `auth.admin.updateUserById` → `signOut({ scope: "others" })`                                                                                                                                                 |
 | `getInvitation`, `acceptInvitation`       | Своя таблица `invitations` остаётся: токен в письме, в БД только SHA-256. Новый пользователь — `auth.admin.createUser({ email, password, email_confirm: true })` + строка в `users` + `memberships` (системный клиент).                                                                            |
 | `startImpersonation`, `stopImpersonation` | Таблица `impersonation_sessions`, ключ — `session_id` из JWT                                                                                                                                                                                                                                       |
@@ -139,7 +137,7 @@
 - `src/proxy.ts`: оптимистичная проверка `ttg_session` заменяется обновлением сессии Supabase по их рецепту для middleware/proxy (`createServerClient` + `getClaims()`) и редиректом на `/login` без сессии. Генерацию nonce и CSP не трогать.
 - `src/server/auth/session-token.ts`, `SESSION_SECRET`: больше не нужны (оставить, пока мок жив).
 - **Создание сотрудника** (`AdminStaffService.create`): строка в `users` создаётся после `auth.admin.createUser({ email, email_confirm: true })` без пароля, затем отправляется ссылка на установку пароля (как сейчас).
-- **«Войти как…»** и `/dev/outbox`: в контейнере Supabase `demo = null` и `devOutbox = null`. Блок не рендерится, страницы отвечают 404 (это уже так в production-сборке).
+- **«Войти как…»:** в контейнере Supabase `demo = null`. Очередь `/admin/outbox` остаётся, она будет храниться в таблице. Блок не рендерится, страницы отвечают 404 (это уже так в production-сборке).
 - **2FA** (`users.totp_enabled`) позже можно сделать на Supabase MFA (TOTP) — для сотрудников платформы в первую очередь.
 
 Готовность шага: e2e `tests/e2e/auth.spec.ts` проходит на staging (кроме тестов, которые зависят от демо-данных мока).
@@ -149,21 +147,9 @@
 - новые: `src/server/auth/supabase-auth-service.ts`, RPC-миграция `0006_sessions_rpc.sql`;
 - меняются: `src/server/auth/types.ts`, `src/server/auth/session.ts`, `src/proxy.ts`.
 
-## Шаг 4. Логотипы в Supabase Storage
+## Шаг 4. Логотипов и файлов нет
 
-`SupabaseStorageProvider implements StorageProvider` в `src/server/providers/storage/supabase.ts`.
-
-- Ключ из кода `logos/{organizationId}/{uuid}.png`: первый сегмент — bucket, остальное — путь в нём.
-- `upload` → `storage.from(bucket).upload(path, body, { contentType, upsert: false })` клиентом пользователя. Политика `logos_write` пустит только OWNER этой организации.
-- `getSignedUrl` → `createSignedUrl(path, expiresInSeconds)`. Bucket приватный, публичных ссылок нет.
-- `delete` → `remove([path])`.
-- Проверка типа по содержимому и размера (`AccountService.uploadLogo`) остаётся на сервере. Ограничения bucket — вторая линия.
-- Логотипы будут грузиться с `https://<project>.supabase.co`, поэтому этот хост нужно добавить в `img-src` CSP.
-
-Файлы:
-
-- новый: `src/server/providers/storage/supabase.ts`;
-- меняется: `src/lib/security/csp.ts` (хост берётся из `SUPABASE_URL`).
+Загрузка логотипа убрана (бесплатный план Supabase, без Storage). Bucket, `StorageProvider` и CSP-правила для хранилища в проект не входят. Если позже понадобится файловое хранилище, его добавляют отдельным шагом.
 
 ## Шаг 5. Переключить `DATA_SOURCE=supabase`
 
@@ -173,8 +159,8 @@
 function createSupabaseContainer(): Container {
   const repositories = createSupabaseRepositories(getUserClient);
   const systemRepositories = createSupabaseRepositories(async () => getSystemClient());
-  // ...auth, storage, email, reviews, rateLimiter — новые реализации
-  return { repositories, systemRepositories, /* ... */ devOutbox: null, demo: null, clock: () => new Date() };
+  // ...auth, outbox, reviews, rateLimiter — новые реализации
+  return { repositories, systemRepositories, /* ... */ outbox: <ManualOutbox в таблице>, demo: null, clock: () => new Date() };
 }
 ```
 
@@ -182,23 +168,18 @@ function createSupabaseContainer(): Container {
 
 1. staging с демо-данными;
 2. прогон `pnpm test:e2e` против staging;
-3. production с пустой БД. Первый SUPER_ADMIN создаётся вручную: `auth.admin.createUser` + `update users set platform_role = 'SUPER_ADMIN'` системным ключом.
+3. production с пустой БД. Первый ADMIN создаётся вручную: `auth.admin.createUser` + `update users set platform_role = 'ADMIN'` системным ключом.
 
 Файлы: `src/server/container.ts`.
 
-## Шаг 6. Resend вместо ConsoleEmailProvider
+## Шаг 6. Очередь писем в таблице (Resend не используется)
 
-`ResendEmailProvider implements EmailProvider` в `src/server/providers/email/resend.ts`.
+Письма не отправляются автоматически: сброс пароля, приглашения и ссылки ставятся в очередь, а администратор отправляет их вручную со страницы `/admin/outbox`.
 
-- Отправляет `subject`, `text` и (если есть) `html` из `EmailMessage`. Шаблоны уже готовы в `src/server/emails/templates.ts`, тексты — в `ru.json` (`emails.*`).
-- `tag` передаётся как тег Resend, чтобы в их панели различать сброс пароля, приглашения и заявки.
-- Домен отправителя подтверждается в Resend: SPF, DKIM, DMARC для `taptogo.kz`.
-- Ошибка отправки — исключение. Сервисы, где письмо не критично (уведомление о заявке, `LeadService.notifyStaff`), уже ловят его сами.
-
-Файлы:
-
-- новый: `src/server/providers/email/resend.ts`;
-- меняется: `src/server/container.ts` (выбор провайдера).
+- Таблица `outbox_messages` (id, to, subject, text, tag, queued_at, sent_at). Колонка `text` содержит одноразовую ссылку, доступ к таблице только у ADMIN и выше (RLS).
+- `ManualOutbox` из `src/server/providers/email/manual.ts` переписывается на эту таблицу, интерфейс `EmailProvider` не меняется.
+- Журнал записывает отметку «отправлено», но не текст письма и не адрес получателя.
+- Если позже понадобится автоматическая отправка, добавляется отдельный провайдер (например, `ResendEmailProvider`), а очередь остаётся для ручных сообщений.
 
 ## Шаг 7. 2ГИС вместо MockReviewsProvider и ежедневная синхронизация
 
@@ -222,8 +203,7 @@ function createSupabaseContainer(): Container {
 Тем же способом позже добавляются ежедневные задачи, для которых уже есть данные и настройки:
 
 - пересчёт статусов подписок с записью `subscription.status_change` в журнал;
-- еженедельный отчёт (`notification_settings.weekly_report_email`);
-- предупреждение о падении активности (`low_activity_alert`).
+- еженедельный отчёт и предупреждение о падении активности: отдельного согласия (таблицы настроек) пока нет, его стоит завести вместе с рассылкой.
 
 Файлы:
 

@@ -8,7 +8,6 @@ import { cardSchema } from "@/features/cards/schemas";
 import { employeeSchema } from "@/features/employees/schemas";
 import { leadSchema } from "@/features/leads/schemas";
 import { locationSchema, ratingSnapshotSchema } from "@/features/locations/schemas";
-import { notificationSettingSchema } from "@/features/notifications/schemas";
 import { organizationSchema } from "@/features/organizations/schemas";
 import { platformSettingsSchema } from "@/features/platform/schemas";
 import { paymentSchema, subscriptionSchema } from "@/features/subscriptions/schemas";
@@ -69,7 +68,6 @@ describe("seed validity", () => {
     expectAllValid(internalCommentSchema, db.comments);
     expectAllValid(leadSchema, db.leads);
     expectAllValid(auditLogSchema, db.auditLogs);
-    expectAllValid(notificationSettingSchema, db.notificationSettings);
     expectAllValid(platformSettingsSchema, [db.platformSettings]);
   });
 

@@ -1,8 +1,6 @@
 import type { Lead, SubmitLeadData } from "@/features/leads/schemas";
 import type { PlanConfig } from "@/features/platform/schemas";
-import { newLeadEmail } from "@/server/emails/templates";
 import { serviceError } from "@/server/i18n";
-import type { EmailProvider } from "@/server/providers/email/types";
 import type { Repositories } from "@/server/repositories";
 import type { RateLimiter, RateLimitRule } from "@/server/security/rate-limiter";
 import type { AuditService } from "@/server/services/audit-service";
@@ -12,14 +10,15 @@ const HOUR = 60 * 60 * 1000;
 export const LEAD_IP_RULE: RateLimitRule = { limit: 5, windowMs: HOUR };
 export const LEAD_PHONE_RULE: RateLimitRule = { limit: 3, windowMs: 24 * HOUR };
 
-/** Public landing page: pricing and the "leave a request" form. No session involved. */
+/**
+ * Public landing page: pricing and the "leave a request" form. No session involved.
+ * New requests are not e-mailed: they appear in the admin panel under "Лиды".
+ */
 export class LeadService {
   constructor(
     private readonly repositories: Repositories,
     private readonly rateLimiter: RateLimiter,
-    private readonly email: EmailProvider,
     private readonly audit: AuditService,
-    private readonly appUrl: () => string,
   ) {}
 
   /** Current plans from platform settings, so the landing always matches what staff configured. */
@@ -28,8 +27,8 @@ export class LeadService {
   }
 
   /**
-   * Stores the request as a NEW lead (visible in /admin/leads) and notifies
-   * admins. The IP is used only as an in-memory rate-limit key, never stored.
+   * Stores the request as a NEW lead. The IP is used only as an in-memory
+   * rate-limit key, never stored.
    */
   async submit(input: SubmitLeadData, client: { ip: string | null }): Promise<Lead> {
     const keys = [
@@ -52,24 +51,6 @@ export class LeadService {
       entityId: lead.id,
       after: { businessName: lead.businessName, city: lead.city },
     });
-    await this.notifyStaff(lead);
     return lead;
-  }
-
-  /** A failed notification must not lose the lead: it is already saved and shown in the admin panel. */
-  private async notifyStaff(lead: Lead) {
-    try {
-      const staff = await this.repositories.users.listPlatformStaff();
-      const link = new URL(`/admin/leads#lead-${lead.id}`, this.appUrl()).toString();
-      await Promise.all(
-        staff
-          .filter(
-            (u) => u.status === "ACTIVE" && (u.platformRole === "SUPER_ADMIN" || u.platformRole === "ADMIN"),
-          )
-          .map((u) => this.email.send(newLeadEmail({ to: u.email, lead, link }))),
-      );
-    } catch (error) {
-      console.error("[leads] staff notification failed", error);
-    }
   }
 }

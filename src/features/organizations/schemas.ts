@@ -24,8 +24,6 @@ export const organizationSchema = z.object({
   contactPhone: phoneSchema,
   contactEmail: emailSchema,
   timezone: timeZoneSchema,
-  /** Storage key (not a URL); turned into a signed URL by StorageProvider. */
-  logoUrl: z.string().max(512).nullable(),
   status: organizationStatusSchema,
   createdAt: timestampSchema,
 });

@@ -1,7 +1,6 @@
 "use server";
 
 import type { ActionResult } from "@/server/actions";
-import { serviceError } from "@/server/i18n";
 import { runOrgAction } from "@/server/org-action";
 import { getServices } from "@/server/services";
 
@@ -16,9 +15,7 @@ import type { OrgRole } from "./schemas";
 
 export async function inviteMemberAction(input: InviteInput): Promise<ActionResult> {
   return runOrgAction("org.team.manage", inviteSchema, input, async (ctx, data) => {
-    const { emailSent } = await getServices().team.invite(ctx, data);
-    // Saved but not delivered: say so, a retry sends a fresh link.
-    if (!emailSent) throw serviceError("INTERNAL", "invitationEmailFailed");
+    await getServices().team.invite(ctx, data);
     return null;
   });
 }

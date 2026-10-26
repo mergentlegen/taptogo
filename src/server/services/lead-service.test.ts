@@ -15,7 +15,6 @@ let services: Services;
 beforeEach(() => {
   container = createMockContainer(createSeedData({ now: NOW }), () => NOW);
   services = createServices(container);
-  container.devOutbox?.clear();
 });
 
 const lead = (phone = "+77019998877") => ({
@@ -27,18 +26,14 @@ const lead = (phone = "+77019998877") => ({
 });
 
 describe("landing leads", () => {
-  it("stores a NEW lead, writes the audit log and emails admins (not support)", async () => {
+  it("stores a NEW lead and writes the audit log; sends no e-mail", async () => {
     const created = await services.leads.submit(lead(), { ip: "203.0.113.5" });
 
     const stored = await container.repositories.leads.findById(created.id);
     expect(stored).toMatchObject({ status: "NEW", assigneeId: null, businessName: "Кофейня «Тест»" });
     const { items } = await container.repositories.auditLogs.list({ action: "lead.create" }, { limit: 10 });
     expect(items[0]).toMatchObject({ actorUserId: null, entityId: created.id });
-
-    const recipients = container.devOutbox!.list().map((m) => m.to);
-    expect(recipients).toEqual(expect.arrayContaining(["superadmin@taptogo.kz", "admin@taptogo.kz"]));
-    expect(recipients).not.toContain("support@taptogo.kz");
-    expect(container.devOutbox!.list()[0]?.text).toContain(`/admin/leads#lead-${created.id}`);
+    expect(container.outbox.list()).toEqual([]);
   });
 
   it("never stores the IP", async () => {

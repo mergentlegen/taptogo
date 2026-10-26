@@ -6,12 +6,12 @@
 
 Одно приложение на Next.js 16 (App Router), три зоны:
 
-| Зона         | URL            | Кто                                             |
-| ------------ | -------------- | ----------------------------------------------- |
-| Публичная    | `/`, `/login`… | все                                             |
-| Кабинет      | `/app/*`       | клиенты: OWNER, MANAGER, VIEWER                 |
-| Админ-панель | `/admin/*`     | сотрудники TapToGo: SUPER_ADMIN, ADMIN, SUPPORT |
-| Редирект     | `/t/{code}`    | гости, которые приложили карточку               |
+| Зона         | URL            | Кто                               |
+| ------------ | -------------- | --------------------------------- |
+| Публичная    | `/`, `/login`… | все                               |
+| Кабинет      | `/app/*`       | клиенты: OWNER, MANAGER           |
+| Админ-панель | `/admin/*`     | администраторы TapToGo: ADMIN     |
+| Редирект     | `/t/{code}`    | гости, которые приложили карточку |
 
 Данные сейчас живут в памяти процесса: при старте их генерирует `src/mocks/seed.ts`. Всё, что зависит от внешнего мира (БД, вход, почта, файлы, 2ГИС, лимиты), спрятано за интерфейсами. Реализации выбирает **одно место** — `src/server/container.ts`.
 
@@ -30,7 +30,7 @@
  server/container.ts ─ выбор реализаций
    ├── repositories/  (интерфейсы)   → repositories/mock/  | позже supabase/
    ├── auth/          AuthService    → MockAuthService     | позже Supabase Auth
-   ├── providers/     email, storage, reviews (2ГИС)
+   ├── providers/     email (ручная очередь), reviews (2ГИС)
    └── security/      RateLimiter
 ```
 
@@ -63,7 +63,7 @@ src/
     (app)/app/...             кабинет клиента
     (admin)/admin/...         админ-панель
     t/[code]/route.ts         редирект с карточки (302 + запись касания)
-    dev/                      /dev/data, /dev/outbox — только в dev-режиме
+    dev/                      /dev/data — только в dev-режиме
     error.tsx, not-found.tsx, forbidden.tsx, global-error.tsx
     robots.ts, sitemap.ts
   proxy.ts                    (бывший middleware) nonce для CSP + ранний редирект на /login
@@ -81,7 +81,7 @@ src/
     auth/                     AuthService, сессии, requireOrgAccess/requirePlatformAccess
     repositories/             интерфейсы; mock/ — реализации в памяти
     services/                 бизнес-логика; admin/ — сервисы админ-панели
-    providers/                email, storage, reviews (интерфейс + мок)
+    providers/                email (очередь ручной отправки), reviews (интерфейс + мок)
     security/                 RateLimiter, определение IP клиента
     emails/templates.ts       тексты писем (из словаря)
     redirect/                 страницы-заглушки редиректа
@@ -163,7 +163,7 @@ export async function createEmployeeAction(input: EmployeeFormInput): Promise<Ac
 | Лимиты частоты                       | `security/rate-limiter.ts`: вход, сброс и смена пароля, `/t`, заявки                                                                         |
 | Открытый редирект                    | `features/targets/url-policy.ts`: https + точное совпадение домена                                                                           |
 | CSV-инъекции                         | `lib/csv.ts` (`sanitizeCell`)                                                                                                                |
-| Загрузка логотипа                    | тип по содержимому файла (`lib/image-type.ts`) и размер до 2 МБ                                                                              |
+| Временный пароль                     | выдаёт администратор (только `admin.manage`), сессии завершаются, `mustChangePassword` закрывает кабинет и админку до смены (`session.ts`)   |
 | IP не хранятся                       | `security/client-ip.ts` — только ключ лимита в памяти                                                                                        |
 | Журнал изменений                     | `services/audit-service.ts`, только добавление записей                                                                                       |
 | Переменные окружения                 | `env.core.ts` — Zod; без `SESSION_SECRET` production не стартует                                                                             |

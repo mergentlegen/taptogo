@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { features } from "@/config/features";
 import type { PlanConfig } from "@/features/platform/schemas";
 import { formatKzt, formatNumber, formatRating } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -85,8 +86,7 @@ export function ClientWizard({ plans, defaultPaidUntil }: { plans: PlanConfig[];
       setFormError(null);
       const result = await createClientAction(form.getValues());
       if (result.ok) {
-        if (result.data.inviteSent) toast.success(t("adm.clients.wizard.created"));
-        else toast.warning(t("adm.clients.wizard.createdNoEmail"));
+        toast.success(t("adm.clients.wizard.created"));
         router.push(`/admin/organizations/${result.data.id}` as Route);
       } else {
         setFormError(result.error.message);
@@ -183,18 +183,22 @@ export function ClientWizard({ plans, defaultPaidUntil }: { plans: PlanConfig[];
                           placeholder: t("adm.clients.wizard.twogisPlaceholder"),
                         })}
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={pending}
-                        onClick={() => preview(index)}
-                      >
-                        <Search data-icon="inline-start" />
-                        {t("adm.clients.wizard.preview")}
-                      </Button>
+                      {features.twogisApi && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() => preview(index)}
+                        >
+                          <Search data-icon="inline-start" />
+                          {t("adm.clients.wizard.preview")}
+                        </Button>
+                      )}
                     </div>
-                    {found === "missing" && <FormAlert>{t("adm.clients.wizard.previewNotFound")}</FormAlert>}
-                    {found && found !== "missing" && (
+                    {features.twogisApi && found === "missing" && (
+                      <FormAlert>{t("adm.clients.wizard.previewNotFound")}</FormAlert>
+                    )}
+                    {features.twogisApi && found && found !== "missing" && (
                       <div
                         className="flex items-center gap-3 rounded-lg bg-muted p-3 text-sm"
                         data-testid="twogis-preview"

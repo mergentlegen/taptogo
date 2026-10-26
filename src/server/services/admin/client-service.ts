@@ -209,12 +209,12 @@ export class AdminClientService {
   async create(
     ctx: AdminContext,
     input: {
-      organization: Omit<Organization, "id" | "timezone" | "logoUrl" | "status" | "createdAt">;
+      organization: Omit<Organization, "id" | "timezone" | "status" | "createdAt">;
       locations: NewLocation[];
       owner: { email: string };
       subscription: { plan: Plan; paidUntil: string; trial: boolean };
     },
-  ): Promise<{ organization: Organization; inviteSent: boolean }> {
+  ): Promise<Organization> {
     assertAdmin(ctx, "admin.manage");
     // Validate every 2GIS link before writing anything.
     const parsed = input.locations.map((location) => {
@@ -227,7 +227,7 @@ export class AdminClientService {
     const settings = await repos.platformSettings.get();
     // One transaction: a failure leaves no half-created client to clean up or duplicate on retry.
     const { organization, locations } = await repos.organizations.createClient({
-      organization: { ...input.organization, timezone: DEFAULT_TIME_ZONE, logoUrl: null, status: "ACTIVE" },
+      organization: { ...input.organization, timezone: DEFAULT_TIME_ZONE, status: "ACTIVE" },
       locations: parsed.map(({ location, firm }) => ({
         location: {
           name: location.name,
@@ -263,13 +263,35 @@ export class AdminClientService {
         after: { name: location.name, twogisFirmId: location.twogisFirmId },
       })),
     ]);
-    // The owner gets an invitation email (shown in /dev/outbox in development). If mail is
-    // down the client still exists; the admin is told to resend instead of creating it twice.
-    const { emailSent } = await this.team.createInvitation(
+    // The owner's invitation goes into the manual sending queue (/admin/outbox).
+    await this.team.createInvitation(
       { organizationId: organization.id, invitedById: ctx.userId },
       { email: input.owner.email, role: "OWNER" },
     );
-    return { organization, inviteSent: emailSent };
+    return organization;
+  }
+
+  /**
+   * Gives a client member a temporary password (for when mail is not used). The
+   * password is returned once, to the administrator's screen; it is not logged,
+   * and the member's sessions end so the new password is the only way in.
+   */
+  async issueTemporaryPassword(ctx: AdminContext, organizationId: string, userId: string): Promise<string> {
+    assertAdmin(ctx, "admin.manage");
+    if (userId === ctx.userId) throw serviceError("CONFLICT", "cannotChangeSelf");
+    if (!(await this.repositories.memberships.find(userId, organizationId))) {
+      throw serviceError("NOT_FOUND", "memberNotFound");
+    }
+    const password = await this.auth.issueTemporaryPassword(userId);
+    if (!password) throw serviceError("NOT_FOUND", "memberNotFound");
+    await this.audit.record({
+      actorUserId: ctx.userId,
+      action: "user.temporary_password",
+      entityType: "user",
+      entityId: userId,
+      organizationId,
+    });
+    return password;
   }
 
   async invite(ctx: AdminContext, organizationId: string, input: { email: string; role: OrgRole }) {

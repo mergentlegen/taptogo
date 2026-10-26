@@ -6,6 +6,7 @@ import { forbidden, redirect } from "next/navigation";
 import { cache } from "react";
 
 import { getEnv } from "@/env";
+import { CHANGE_PASSWORD_PATH } from "@/features/auth/redirect";
 import type { Organization } from "@/features/organizations/schemas";
 import type { OrgRole } from "@/features/team/schemas";
 import { getContainer } from "@/server/container";
@@ -117,7 +118,15 @@ const actorOf = (session: Session, memberships: Actor["memberships"] = []): Acto
 
 // ── Guards for pages and layouts ──────────────────────────────────────────
 
+/** Signed in, and not holding a temporary password. Pages use this (or a require* below). */
 export async function requireSession(): Promise<Session> {
+  const session = await requireSessionAllowingTemporary();
+  if (session.user.mustChangePassword) redirect(CHANGE_PASSWORD_PATH);
+  return session;
+}
+
+/** Signed in, whatever the password state: only the change-password page uses this. */
+export async function requireSessionAllowingTemporary(): Promise<Session> {
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   return session;
@@ -131,6 +140,8 @@ export async function requirePlatformAccess(permission: PlatformPermission = "ad
 }
 
 export async function requireOrgAccess(permission: OrgPermission = "org.view"): Promise<OrgAccess> {
+  const session = await getCurrentSession();
+  if (session?.user.mustChangePassword) redirect(CHANGE_PASSWORD_PATH);
   const access = await loadOrgAccess();
   if (access === "NO_SESSION") redirect("/login");
   if (access === "NO_ORGANIZATION" || !access.permissions.includes(permission)) forbidden();
@@ -145,8 +156,16 @@ export async function authorizeSession(): Promise<Session> {
   return session;
 }
 
-export async function authorizePlatformAction(permission: PlatformPermission) {
+/** Actions refuse everything but the password change while a temporary password is in use. */
+async function authorizeCompletedSession(): Promise<Session> {
   const session = await authorizeSession();
+  if (session.user.mustChangePassword)
+    throw new AppError("FORBIDDEN", (await getTranslations("errors.action"))("mustChangePassword"));
+  return session;
+}
+
+export async function authorizePlatformAction(permission: PlatformPermission) {
+  const session = await authorizeCompletedSession();
   const actor = actorOf(session);
   if (!can(actor, permission))
     throw new AppError("FORBIDDEN", (await getTranslations("errors.action"))("forbidden"));
@@ -157,6 +176,8 @@ export async function authorizeOrgAction(permission: OrgPermission): Promise<Org
   const access = await loadOrgAccess();
   if (access === "NO_SESSION")
     throw new AppError("UNAUTHORIZED", (await getTranslations("errors.action"))("unauthorized"));
+  if (access !== "NO_ORGANIZATION" && access.session.user.mustChangePassword)
+    throw new AppError("FORBIDDEN", (await getTranslations("errors.action"))("mustChangePassword"));
   if (access === "NO_ORGANIZATION" || !access.permissions.includes(permission)) {
     throw new AppError("FORBIDDEN", (await getTranslations("errors.action"))("forbidden"));
   }

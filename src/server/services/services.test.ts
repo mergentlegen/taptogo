@@ -9,7 +9,6 @@ import { createServices, type Services } from "./index";
 
 const NOW = new Date("2026-10-17T10:00:00Z");
 const TODAY = "2026-10-17";
-const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 
 let container: Container;
 let services: Services;
@@ -124,7 +123,9 @@ describe("organization isolation (OWNER of A vs data of B)", () => {
       )
     )[0];
 
-    await expect(services.team.changeRole(ownerA, memberB!.userId, "VIEWER")).rejects.toMatchObject(notFound);
+    await expect(services.team.changeRole(ownerA, memberB!.userId, "MANAGER")).rejects.toMatchObject(
+      notFound,
+    );
     await expect(services.team.removeMember(ownerA, memberB!.userId)).rejects.toMatchObject(notFound);
     await expect(services.team.revokeInvitation(ownerA, invitationB!.id)).rejects.toMatchObject(notFound);
   });
@@ -224,25 +225,25 @@ describe("team", () => {
     await expect(services.team.removeMember(ownerA, ownerA.userId)).rejects.toMatchObject({
       code: "CONFLICT",
     });
-    await expect(services.team.changeRole(ownerA, ownerA.userId, "VIEWER")).rejects.toMatchObject({
+    await expect(services.team.changeRole(ownerA, ownerA.userId, "MANAGER")).rejects.toMatchObject({
       code: "CONFLICT",
     });
   });
 
   it("invites by email, replacing an earlier pending invitation", async () => {
-    await services.team.invite(ownerA, { email: "New@Coffeepoint.kz", role: "VIEWER" });
+    await services.team.invite(ownerA, { email: "New@Coffeepoint.kz", role: "OWNER" });
     await services.team.invite(ownerA, { email: "new@coffeepoint.kz", role: "MANAGER" });
 
     const { invitations } = await services.team.list(ownerA);
     const mine = invitations.filter((i) => i.email === "new@coffeepoint.kz");
     expect(mine).toHaveLength(1);
     expect(mine[0]?.role).toBe("MANAGER");
-    expect(container.devOutbox?.list()[0]?.text).toMatch(/\/invite\/[A-Za-z0-9_-]{43}/);
+    expect(container.outbox?.list()[0]?.text).toMatch(/\/invite\/[A-Za-z0-9_-]{43}/);
   });
 
   it("refuses to invite an existing member", async () => {
     await expect(
-      services.team.invite(ownerA, { email: "manager@coffeepoint.kz", role: "VIEWER" }),
+      services.team.invite(ownerA, { email: "manager@coffeepoint.kz", role: "MANAGER" }),
     ).rejects.toMatchObject({
       code: "CONFLICT",
     });
@@ -274,19 +275,6 @@ describe("reports", () => {
 });
 
 describe("account", () => {
-  it("accepts only real images for the logo", async () => {
-    await services.account.uploadLogo(ownerA, PNG);
-    const org = await container.repositories.organizations.findById(ownerA.organizationId);
-    expect(org?.logoUrl).toMatch(/^logos\/.+\.png$/);
-    expect(await services.account.logoUrl(org!)).toMatch(/^data:image\/png;base64,/);
-
-    const svg = new TextEncoder().encode("<svg><script>alert(1)</script></svg>");
-    await expect(services.account.uploadLogo(ownerA, svg)).rejects.toMatchObject(invalid);
-    await expect(services.account.uploadLogo(ownerA, new Uint8Array(3 * 1024 * 1024))).rejects.toMatchObject(
-      invalid,
-    );
-  });
-
   it("changes the password only with the current one", async () => {
     await expect(
       services.account.changePassword({
@@ -316,22 +304,31 @@ describe("account", () => {
 describe("permission checks inside services (not only in actions)", () => {
   const as = (role: OrgContext["role"]): OrgContext => ({ ...ownerA, role });
 
-  it("refuses writes to roles without the permission, whatever path calls the service", async () => {
+  it("lets a manager run the cabinet, but not the team or the organization's details", async () => {
     const [card] = await services.cards.list(ownerA);
     const forbidden = { code: "FORBIDDEN" };
-    await expect(services.cards.setPaused(as("VIEWER"), card!.id, true)).rejects.toMatchObject(forbidden);
+    await expect(services.cards.setPaused(as("MANAGER"), card!.id, true)).resolves.toBeDefined();
     await expect(
-      services.employees.create(as("VIEWER"), {
+      services.employees.create(as("MANAGER"), {
         name: "X",
         position: null,
         locationId: null,
         isActive: true,
       }),
+    ).resolves.toBeDefined();
+    await expect(
+      services.team.invite(as("MANAGER"), { email: "x@y.kz", role: "MANAGER" }),
     ).rejects.toMatchObject(forbidden);
     await expect(
-      services.team.invite(as("MANAGER"), { email: "x@y.kz", role: "VIEWER" }),
+      services.account.updateOrganization(as("MANAGER"), {
+        name: "Новое имя",
+        legalName: null,
+        bin: null,
+        contactName: "Имя",
+        contactPhone: "+77010000000",
+        contactEmail: "a@b.kz",
+      }),
     ).rejects.toMatchObject(forbidden);
-    await expect(services.account.removeLogo(as("MANAGER"))).rejects.toMatchObject(forbidden);
   });
 
   it("refuses every write to staff viewing a cabinet (no role), while reads work", async () => {

@@ -1,23 +1,18 @@
-import type { NotificationSetting } from "@/features/notifications/schemas";
 import type { Organization } from "@/features/organizations/schemas";
-import { LOGO_MAX_BYTES } from "@/features/settings/form-schemas";
 import type { User } from "@/features/users/schemas";
-import { detectImageType } from "@/lib/image-type";
 import type { AuthService, SessionInfo } from "@/server/auth/types";
 import { serviceError } from "@/server/i18n";
-import type { StorageProvider } from "@/server/providers/storage/types";
 import type { Repositories } from "@/server/repositories";
 import { forOrganization } from "@/server/repositories/tenant";
 import type { AuditService } from "@/server/services/audit-service";
 
 import { assertOrgPermission, auditDiff, type OrgContext } from "./context";
 
-/** Profile, password, sessions, organization details, logo and notification settings. */
+/** Profile, password, sessions and organization details. */
 export class AccountService {
   constructor(
     private readonly repositories: Repositories,
     private readonly auth: AuthService,
-    private readonly storage: StorageProvider,
     private readonly audit: AuditService,
   ) {}
 
@@ -94,75 +89,5 @@ export class AccountService {
       });
     }
     return after;
-  }
-
-  /** Type is decided by the file's bytes, not by its name or the browser's claim. */
-  async uploadLogo(ctx: OrgContext, bytes: Uint8Array): Promise<void> {
-    assertOrgPermission(ctx, "org.settings.manage");
-    const repos = forOrganization(this.repositories, ctx.organizationId);
-    if (bytes.byteLength > LOGO_MAX_BYTES) throw serviceError("VALIDATION", "logoTooLarge");
-    const type = detectImageType(bytes);
-    if (!type) throw serviceError("VALIDATION", "logoBadType");
-
-    const organization = await repos.organization.get();
-    const key = `logos/${ctx.organizationId}/${crypto.randomUUID()}.${type.extension}`;
-    await this.storage.upload({ key, contentType: type.mime, body: bytes });
-    await repos.organization.update({ logoUrl: key });
-    if (organization?.logoUrl) await this.storage.delete(organization.logoUrl);
-    await this.audit.record({
-      actorUserId: ctx.userId,
-      action: "organization.logo_update",
-      entityType: "organization",
-      entityId: ctx.organizationId,
-      organizationId: ctx.organizationId,
-      after: { contentType: type.mime, size: bytes.byteLength },
-    });
-  }
-
-  async removeLogo(ctx: OrgContext): Promise<void> {
-    assertOrgPermission(ctx, "org.settings.manage");
-    const repos = forOrganization(this.repositories, ctx.organizationId);
-    const organization = await repos.organization.get();
-    if (!organization?.logoUrl) return;
-    await this.storage.delete(organization.logoUrl);
-    await repos.organization.update({ logoUrl: null });
-    await this.audit.record({
-      actorUserId: ctx.userId,
-      action: "organization.logo_remove",
-      entityType: "organization",
-      entityId: ctx.organizationId,
-      organizationId: ctx.organizationId,
-    });
-  }
-
-  async logoUrl(organization: Pick<Organization, "logoUrl">): Promise<string | null> {
-    return organization.logoUrl
-      ? this.storage.getSignedUrl(organization.logoUrl, { expiresInSeconds: 300 })
-      : null;
-  }
-
-  async notifications(ctx: OrgContext): Promise<NotificationSetting> {
-    return (
-      (await forOrganization(this.repositories, ctx.organizationId).notificationSettings.find(
-        ctx.userId,
-      )) ?? {
-        userId: ctx.userId,
-        organizationId: ctx.organizationId,
-        weeklyReportEmail: false,
-        lowActivityAlert: false,
-      }
-    );
-  }
-
-  async updateNotifications(
-    ctx: OrgContext,
-    input: Partial<Pick<NotificationSetting, "weeklyReportEmail" | "lowActivityAlert">>,
-  ): Promise<NotificationSetting> {
-    const { organizationId: _ignored, ...current } = await this.notifications(ctx);
-    return forOrganization(this.repositories, ctx.organizationId).notificationSettings.upsert({
-      ...current,
-      ...input,
-      userId: ctx.userId,
-    });
   }
 }

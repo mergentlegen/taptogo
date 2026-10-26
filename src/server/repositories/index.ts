@@ -9,7 +9,7 @@ import type {
   RatingSnapshotRepository,
   RedirectTargetRepository,
 } from "./organizations";
-import type { AuditLogRepository, NotificationSettingRepository, PlatformSettingsRepository } from "./system";
+import type { AuditLogRepository, PlatformSettingsRepository } from "./system";
 import type { InvitationRepository, MembershipRepository, UserRepository } from "./users";
 
 /** Every data access interface. Implementations: ./mock (now), ./supabase (later). */
@@ -32,7 +32,6 @@ export type Repositories = {
   leads: LeadRepository;
   comments: InternalCommentRepository;
   auditLogs: AuditLogRepository;
-  notificationSettings: NotificationSettingRepository;
   platformSettings: PlatformSettingsRepository;
 };
 

@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Lock, LockOpen, UserPlus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
 
@@ -20,13 +20,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { platformRoles, type PlatformRole, type User } from "@/features/users/schemas";
+import type { User } from "@/features/users/schemas";
 import { formatDateTime } from "@/lib/format";
 import { applyActionError } from "@/lib/forms";
 
-import { createStaffAction, setStaffRoleAction, setStaffStatusAction } from "../actions";
+import { createStaffAction, setStaffStatusAction } from "../actions";
 import { createStaffSchema } from "../schemas";
 import { YesNoBadge } from "./badges";
 
@@ -50,7 +49,6 @@ export function StaffManager({ staff, currentUserId }: { staff: User[]; currentU
           <TableHeader>
             <TableRow>
               <TableHead>{t("adm.staff.columns.name")}</TableHead>
-              <TableHead>{t("adm.staff.columns.role")}</TableHead>
               <TableHead>{t("adm.staff.columns.status")}</TableHead>
               <TableHead>{t("adm.staff.columns.lastLogin")}</TableHead>
               <TableHead>{t("adm.staff.columns.totp")}</TableHead>
@@ -68,26 +66,6 @@ export function StaffManager({ staff, currentUserId }: { staff: User[]; currentU
                     <span className="font-medium">{user.name}</span>
                     {self && <span className="text-muted-foreground"> ({t("adm.staff.you")})</span>}
                     <span className="block text-xs text-muted-foreground">{user.email}</span>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={user.platformRole ?? "SUPPORT"}
-                      disabled={self || pending}
-                      onValueChange={(role) =>
-                        run(() => setStaffRoleAction({ userId: user.id, role: role as PlatformRole }))
-                      }
-                    >
-                      <SelectTrigger className="w-40" aria-label={`${t("adm.staff.role")}: ${user.name}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {platformRoles.map((role) => (
-                          <SelectItem key={role} value={role}>
-                            {t(`roles.${role}`)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                   </TableCell>
                   <TableCell>
                     <YesNoBadge
@@ -145,9 +123,8 @@ function CreateStaffDialog() {
   const [formError, setFormError] = useState<string | null>(null);
   const form = useForm<z.input<typeof createStaffSchema>, unknown, z.output<typeof createStaffSchema>>({
     resolver: zodResolver(createStaffSchema),
-    defaultValues: { email: "", name: "", role: "SUPPORT" },
+    defaultValues: { email: "", name: "" },
   });
-  const role = useWatch({ control: form.control, name: "role" });
 
   const onSubmit = form.handleSubmit(() =>
     startTransition(async () => {
@@ -180,26 +157,6 @@ function CreateStaffDialog() {
           <FormField label={t("adm.staff.email")} error={form.formState.errors.email?.message}>
             <Input type="email" {...form.register("email")} />
           </FormField>
-          <Controller
-            control={form.control}
-            name="role"
-            render={({ field }) => (
-              <FormField label={t("adm.staff.role")} hint={t(`adm.staff.roleHints.${role}`)}>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {platformRoles.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {t(`roles.${r}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-            )}
-          />
           <DialogFooter>
             <Button type="submit" disabled={pending}>
               {t("adm.common.create")}

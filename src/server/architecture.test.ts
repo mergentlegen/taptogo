@@ -73,7 +73,7 @@ describe("Server Actions", () => {
         return;
       }
       // runOrgAction / runAdminAction = Zod + permission; runAction = Zod for public forms.
-      expect(action.body).toMatch(/\brun(Org|Admin)?Action\(/);
+      expect(action.body).toMatch(/\brun(Org|Admin|Account)?Action\(/);
     },
   );
 

@@ -1,31 +1,26 @@
-export const emailTags = [
-  "invitation",
-  "password_reset",
-  "weekly_report",
-  "low_activity",
-  "subscription_reminder",
-  "new_lead",
-] as const;
+export const emailTags = ["invitation", "password_reset"] as const;
 export type EmailTag = (typeof emailTags)[number];
 
 export type EmailMessage = {
   to: string;
   subject: string;
-  /** Plain-text body; always required so every email is readable without HTML. */
+  /** Plain text: the admin copies it into a messenger, so it must read well as is. */
   text: string;
-  html?: string;
   tag: EmailTag;
 };
 
+/**
+ * Where messages go. There is no mail service: the message is queued and an
+ * administrator sends it by hand (WhatsApp, phone) from the "manual sending" page.
+ */
 export interface EmailProvider {
   readonly name: string;
   send(message: EmailMessage): Promise<{ id: string }>;
 }
 
-export type SentEmail = EmailMessage & { id: string; sentAt: string };
-
-/** Development-only view of "sent" emails, rendered at /dev/outbox. */
-export interface DevOutbox {
-  list(): SentEmail[];
-  clear(): void;
-}
+export type QueuedMessage = EmailMessage & {
+  id: string;
+  queuedAt: string;
+  /** Set when the administrator confirms the message has been sent. */
+  sentAt: string | null;
+};
