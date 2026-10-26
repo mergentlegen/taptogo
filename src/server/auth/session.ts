@@ -36,12 +36,14 @@ export async function getClientInfo(): Promise<ClientInfo> {
 
 /** Validated session of the current request, or null. Cached per request. */
 export const getCurrentSession = cache(async (): Promise<Session | null> => {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
+  // Mock auth keeps its own signed cookie; Supabase Auth reads its cookies by itself.
+  const token = (await cookies()).get(SESSION_COOKIE)?.value ?? null;
   return getContainer().auth.getSession(token);
 });
 
 export async function setSessionCookie(session: IssuedSession): Promise<void> {
+  // Nothing to set when the auth backend has already written its own cookies.
+  if (session.token === null) return;
   (await cookies()).set(
     SESSION_COOKIE,
     session.token,

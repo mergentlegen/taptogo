@@ -6,16 +6,21 @@ import type { PlatformRole } from "@/features/users/schemas";
 import { getMockDatabase, type MockDatabase } from "@/mocks/db";
 import { DEMO_INVITATION_TOKEN, DEMO_PASSWORD, demoAccounts } from "@/mocks/seed";
 import { MockAuthService } from "@/server/auth/mock-auth-service";
+import { SupabaseAuthService } from "@/server/auth/supabase-auth-service";
 import type { AuthService, ClientInfo, SignInResult } from "@/server/auth/types";
 import { ManualOutbox } from "@/server/providers/email/manual";
-import type { EmailProvider } from "@/server/providers/email/types";
+import { SupabaseOutbox } from "@/server/providers/email/supabase-outbox";
+import type { EmailProvider, Outbox } from "@/server/providers/email/types";
+import { DisabledReviewsProvider } from "@/server/providers/reviews/disabled";
 import { MockReviewsProvider } from "@/server/providers/reviews/mock";
 import type { ReviewsProvider } from "@/server/providers/reviews/types";
 import type { Repositories } from "@/server/repositories";
 import { createMockRepositories } from "@/server/repositories/mock";
+import { createSupabaseRepositories } from "@/server/repositories/supabase";
 import { InMemoryRateLimiter, type RateLimiter } from "@/server/security/rate-limiter";
 import { AuditService } from "@/server/services/audit-service";
 import { processSingleton } from "@/server/singleton";
+import { createIsolatedClient, getSystemClient, getUserClient } from "@/server/supabase/clients";
 
 /**
  * The only place that knows which implementations are in use. Pages,
@@ -42,7 +47,7 @@ export type Container = {
   email: EmailProvider;
   reviews: ReviewsProvider;
   /** Messages waiting for manual sending by an administrator (/admin/outbox). */
-  outbox: ManualOutbox;
+  outbox: Outbox;
   /** Demo accounts for the dev "Sign in as…" block; null outside mock mode. */
   demo: DemoInfo | null;
   clock: () => Date;
@@ -62,7 +67,8 @@ export function getContainer(): Container {
     switch (DATA_SOURCE) {
       case "mock":
         return createMockContainer(getMockDatabase());
-      // case "supabase": return createSupabaseContainer(); — see docs/SUPABASE_MIGRATION.md
+      case "supabase":
+        return createSupabaseContainer();
     }
   });
 }
@@ -122,6 +128,48 @@ export function createMockContainer(db: MockDatabase, clock: () => Date = () => 
       signIn: (address, client) => auth.signInAsDemo(address, client),
       invitationToken: DEMO_INVITATION_TOKEN,
     },
+    clock,
+  };
+}
+
+/**
+ * Real services: Supabase Auth and Postgres. `repositories` run under the signed-in
+ * user's JWT (Row Level Security applies); everything without a user behind the
+ * request — sign-in, the card redirect, landing leads — uses the secret-key client.
+ */
+export function createSupabaseContainer(clock: () => Date = () => new Date()): Container {
+  const env = getEnv();
+  const repositories = createSupabaseRepositories(getUserClient);
+  const systemRepositories = createSupabaseRepositories(async () => getSystemClient());
+  const audit = new AuditService(repositories.auditLogs);
+  const systemAudit = new AuditService(systemRepositories.auditLogs);
+  const outbox = new SupabaseOutbox(getSystemClient);
+  // Per server process. Each serverless instance counts on its own; a shared store
+  // (docs/SUPABASE_MIGRATION.md, step 8) makes the limits global.
+  const rateLimiter = new InMemoryRateLimiter(clock);
+  const auth = new SupabaseAuthService({
+    userClient: getUserClient,
+    isolatedClient: createIsolatedClient,
+    system: getSystemClient,
+    repositories: systemRepositories,
+    email: outbox,
+    rateLimiter,
+    audit: systemAudit,
+    clock,
+    appUrl: env.APP_URL,
+  });
+
+  return {
+    repositories,
+    systemRepositories,
+    auth,
+    audit,
+    systemAudit,
+    rateLimiter,
+    email: outbox,
+    reviews: new DisabledReviewsProvider(),
+    outbox,
+    demo: null,
     clock,
   };
 }

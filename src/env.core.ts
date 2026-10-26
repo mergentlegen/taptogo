@@ -10,20 +10,46 @@ import { z } from "zod";
  */
 export const DEV_SESSION_SECRET = "dev-only-insecure-session-secret-do-not-use-in-prod";
 
+/** `KEY=` in a .env file arrives as "", which is the same as not setting the variable. */
+const optionalString = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === "" ? undefined : value), schema.optional());
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     /** Which implementation of repositories/providers `server/container.ts` wires up. */
-    DATA_SOURCE: z.enum(["mock"]).default("mock"),
+    DATA_SOURCE: z.enum(["mock", "supabase"]).default("mock"),
     /** Public base URL used to build card links (/t/{code}) and email links. */
     APP_URL: z.url().default("http://localhost:3000"),
     /** HMAC key for signing the session cookie. At least 32 characters. */
     SESSION_SECRET: z.string().min(32, "must be at least 32 characters").optional(),
     /** IANA time zone used when an organization has none set. */
     DEFAULT_TIMEZONE: z.string().min(1).default("Asia/Almaty"),
+    /** Supabase project URL. Required by the Supabase clients, not by mock mode. */
+    SUPABASE_URL: optionalString(z.url()),
+    /** Publishable key (formerly "anon"): requests on behalf of the user, RLS applies. */
+    SUPABASE_PUBLISHABLE_KEY: optionalString(z.string().min(1)),
+    /** Secret key (formerly "service_role"): bypasses RLS. Server only, never logged. */
+    SUPABASE_SECRET_KEY: optionalString(z.string().min(1)),
+    /** Bearer token that protects the cron routes. */
+    CRON_SECRET: optionalString(z.string().min(16, "must be at least 16 characters")),
+    /** Reserved: the 2GIS integration is hidden (features.twogisApi). */
+    TWOGIS_API_KEY: optionalString(z.string().min(1)),
   })
   .superRefine((value, ctx) => {
-    if (value.NODE_ENV === "production" && !value.SESSION_SECRET) {
+    if (value.DATA_SOURCE === "supabase") {
+      for (const name of ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY"] as const) {
+        if (!value[name]) {
+          ctx.addIssue({
+            code: "custom",
+            path: [name],
+            message: 'is required when DATA_SOURCE is "supabase"',
+          });
+        }
+      }
+    }
+    // Only the mock auth signs its own cookie; Supabase Auth has sessions of its own.
+    if (value.NODE_ENV === "production" && value.DATA_SOURCE === "mock" && !value.SESSION_SECRET) {
       ctx.addIssue({
         code: "custom",
         path: ["SESSION_SECRET"],

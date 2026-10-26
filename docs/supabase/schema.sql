@@ -344,6 +344,17 @@ create table public.leads (
 );
 create index leads_status_idx on public.leads (status, created_at desc);
 
+-- Covering indexes for foreign keys (deletes/updates of the referenced row scan these).
+create index employees_location_id_idx on public.employees (location_id) where location_id is not null;
+create index redirect_targets_location_id_idx on public.redirect_targets (location_id) where location_id is not null;
+create index impersonation_sessions_organization_id_idx on public.impersonation_sessions (organization_id);
+create index impersonation_sessions_staff_user_id_idx on public.impersonation_sessions (staff_user_id);
+create index invitations_invited_by_id_idx on public.invitations (invited_by_id);
+create index leads_assignee_id_idx on public.leads (assignee_id) where assignee_id is not null;
+create index payments_recorded_by_id_idx on public.payments (recorded_by_id);
+create index support_tickets_assignee_id_idx on public.support_tickets (assignee_id) where assignee_id is not null;
+create index support_tickets_author_id_idx on public.support_tickets (author_id);
+
 -- Заметки сотрудников по обращениям и лидам; клиент их никогда не видит.
 -- subject_id полиморфный (ticket или lead), поэтому без внешнего ключа.
 create table public.internal_comments (
@@ -355,6 +366,7 @@ create table public.internal_comments (
   created_at   timestamptz not null default now()
 );
 create index internal_comments_subject_idx on public.internal_comments (subject_type, subject_id, created_at);
+create index internal_comments_author_id_idx on public.internal_comments (author_id);
 
 
 -- -----------------------------------------------------------------------------
@@ -1083,3 +1095,304 @@ revoke execute on function public.daily_stat_totals, public.assign_cards, public
   public.create_client from public, anon;
 grant execute on function public.daily_stat_totals, public.assign_cards, public.create_batch_with_cards,
   public.create_client to authenticated, service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- Аналитика касаний и сводные запросы
+--
+-- Репозитории вызывают эти функции через rpc: группировки и суммы считает БД,
+-- в приложение приходят только итоги (а не тысячи строк). Все функции
+-- security invoker: под пользовательским клиентом действует RLS, под системным
+-- (service_role) видны все строки.
+-- -----------------------------------------------------------------------------
+
+-- Порядок карточек «партия, номер» (created_at у карточек = created_at партии).
+create index cards_order_idx on public.cards (created_at, batch_id, number);
+
+-- Число касаний за период: valid (без ботов и дублей), bots, duplicates или all.
+create function public.tap_count(
+  p_from timestamptz,
+  p_to timestamptz,
+  p_kind text default 'valid',
+  p_organization_id uuid default null,
+  p_card_ids uuid[] default null,
+  p_location_id uuid default null,
+  p_employee_id uuid default null
+)
+returns bigint
+language plpgsql stable security invoker set search_path = '' as $$
+begin
+  if p_kind not in ('valid', 'bots', 'duplicates', 'all') then
+    raise exception 'tap_count: unknown kind %', p_kind using errcode = '22023';
+  end if;
+  return (
+    select count(*)
+    from public.tap_events e
+    where e.occurred_at >= p_from and e.occurred_at < p_to
+      and (p_kind = 'all'
+           or (p_kind = 'valid' and not e.is_bot and not e.is_duplicate)
+           or (p_kind = 'bots' and e.is_bot)
+           or (p_kind = 'duplicates' and e.is_duplicate))
+      and (p_organization_id is null or e.organization_id = p_organization_id)
+      and (p_card_ids is null or e.card_id = any (p_card_ids))
+      and (p_location_id is null or e.location_id = p_location_id)
+      and (p_employee_id is null or e.employee_id = p_employee_id)
+  );
+end;
+$$;
+
+-- Тепловая карта: день недели (1 = понедельник) × час в часовом поясе p_tz.
+create function public.tap_heatmap(
+  p_from timestamptz,
+  p_to timestamptz,
+  p_tz text,
+  p_organization_id uuid default null,
+  p_card_ids uuid[] default null,
+  p_location_id uuid default null,
+  p_employee_id uuid default null
+)
+returns table (weekday integer, hour integer, taps bigint)
+language sql stable security invoker set search_path = '' as $$
+  select
+    extract(isodow from (e.occurred_at at time zone p_tz))::integer,
+    extract(hour from (e.occurred_at at time zone p_tz))::integer,
+    count(*)
+  from public.tap_events e
+  where e.occurred_at >= p_from and e.occurred_at < p_to
+    and not e.is_bot and not e.is_duplicate
+    and (p_organization_id is null or e.organization_id = p_organization_id)
+    and (p_card_ids is null or e.card_id = any (p_card_ids))
+    and (p_location_id is null or e.location_id = p_location_id)
+    and (p_employee_id is null or e.employee_id = p_employee_id)
+  group by 1, 2
+  order by 1, 2
+$$;
+
+-- Разбивка валидных касаний: dimension = source | os | deviceType.
+create function public.tap_breakdown(
+  p_from timestamptz,
+  p_to timestamptz,
+  p_organization_id uuid default null,
+  p_card_ids uuid[] default null,
+  p_location_id uuid default null,
+  p_employee_id uuid default null
+)
+returns table (dimension text, key text, taps bigint)
+language sql stable security invoker set search_path = '' as $$
+  with valid as (
+    select e.source, e.os, e.device_type
+    from public.tap_events e
+    where e.occurred_at >= p_from and e.occurred_at < p_to
+      and not e.is_bot and not e.is_duplicate
+      and (p_organization_id is null or e.organization_id = p_organization_id)
+      and (p_card_ids is null or e.card_id = any (p_card_ids))
+      and (p_location_id is null or e.location_id = p_location_id)
+      and (p_employee_id is null or e.employee_id = p_employee_id)
+  )
+  select 'source', v.source::text, count(*) from valid v group by 2
+  union all
+  select 'os', v.os::text, count(*) from valid v group by 2
+  union all
+  select 'deviceType', v.device_type::text, count(*) from valid v group by 2
+$$;
+
+-- Последнее валидное касание по каждой карточке.
+create function public.last_tap_by_card(
+  p_organization_id uuid default null,
+  p_card_ids uuid[] default null,
+  p_location_id uuid default null,
+  p_employee_id uuid default null
+)
+returns table (card_id uuid, last_tap_at timestamptz)
+language sql stable security invoker set search_path = '' as $$
+  select e.card_id, max(e.occurred_at)
+  from public.tap_events e
+  where not e.is_bot and not e.is_duplicate
+    and (p_organization_id is null or e.organization_id = p_organization_id)
+    and (p_card_ids is null or e.card_id = any (p_card_ids))
+    and (p_location_id is null or e.location_id = p_location_id)
+    and (p_employee_id is null or e.employee_id = p_employee_id)
+  group by e.card_id
+$$;
+
+-- Выручка за период (в тенге).
+create function public.payments_sum(p_from timestamptz, p_to timestamptz)
+returns bigint
+language sql stable security invoker set search_path = '' as $$
+  select coalesce(sum(p.amount_kzt), 0)::bigint
+  from public.payments p
+  where p.paid_at >= p_from and p.paid_at < p_to
+$$;
+
+-- Прогресс партий: сколько карточек выдано клиентам, записано на NFC и заблокировано.
+create function public.batch_progress()
+returns table (batch_id uuid, assigned bigint, written bigint, locked bigint)
+language sql stable security invoker set search_path = '' as $$
+  select c.batch_id,
+         count(*) filter (where c.status <> 'UNASSIGNED'),
+         count(*) filter (where c.nfc_written),
+         count(*) filter (where c.nfc_locked)
+  from public.cards c
+  group by c.batch_id
+$$;
+
+-- Число карточек по значению измерения (organizationId | targetId | batchId);
+-- строки, где значение пустое, не возвращаются.
+create function public.card_counts(
+  p_dimension text,
+  p_organization_id uuid default null,
+  p_batch_id uuid default null,
+  p_location_id uuid default null,
+  p_employee_id uuid default null,
+  p_target_id uuid default null,
+  p_statuses public.card_status[] default null,
+  p_number_from integer default null,
+  p_number_to integer default null,
+  p_search text default null
+)
+returns table (key text, n bigint)
+language plpgsql stable security invoker set search_path = '' as $$
+declare
+  v_like text := replace(replace(replace(coalesce(p_search, ''), chr(92), chr(92) || chr(92)), '%', chr(92) || '%'), '_', chr(92) || '_');
+begin
+  if p_dimension not in ('organizationId', 'targetId', 'batchId') then
+    raise exception 'card_counts: unknown dimension %', p_dimension using errcode = '22023';
+  end if;
+  return query
+    select g.key, g.n
+    from (
+      select
+        case p_dimension
+          when 'organizationId' then c.organization_id::text
+          when 'targetId' then c.target_id::text
+          else c.batch_id::text
+        end as key,
+        count(*) as n
+      from public.cards c
+      where (p_organization_id is null or c.organization_id = p_organization_id)
+        and (p_batch_id is null or c.batch_id = p_batch_id)
+        and (p_location_id is null or c.location_id = p_location_id)
+        and (p_employee_id is null or c.employee_id = p_employee_id)
+        and (p_target_id is null or c.target_id = p_target_id)
+        and (p_statuses is null or c.status = any (p_statuses))
+        and (p_number_from is null or c.number >= p_number_from)
+        and (p_number_to is null or c.number <= p_number_to)
+        and (p_search is null or p_search = ''
+             or c.code like v_like || '%'
+             or c.label ilike '%' || v_like || '%')
+      group by 1
+    ) g
+    where g.key is not null
+    order by g.key;
+end;
+$$;
+
+-- «Простаивающие» карточки: активные, выданные раньше p_activated_before,
+-- без валидных касаний с локальной даты p_no_taps_since.
+create function public.idle_cards(
+  p_activated_before timestamptz,
+  p_no_taps_since date,
+  p_limit integer
+)
+returns setof public.cards
+language sql stable security invoker set search_path = '' as $$
+  select c.*
+  from public.cards c
+  where c.status = 'ACTIVE'
+    and c.organization_id is not null
+    and c.activated_at is not null
+    and c.activated_at < p_activated_before
+    and not exists (
+      select 1 from public.daily_card_stats s
+      where s.card_id = c.id and s.date >= p_no_taps_since and s.taps > 0
+    )
+  order by c.created_at, c.batch_id, c.number
+  limit p_limit
+$$;
+
+-- Последний снимок рейтинга по каждому филиалу.
+create function public.latest_rating_snapshots(p_location_ids uuid[])
+returns setof public.rating_snapshots
+language sql stable security invoker set search_path = '' as $$
+  select distinct on (s.location_id) s.*
+  from public.rating_snapshots s
+  where s.location_id = any (p_location_ids)
+  order by s.location_id, s.captured_at desc
+$$;
+
+revoke execute on function public.tap_count, public.tap_heatmap, public.tap_breakdown,
+  public.last_tap_by_card, public.payments_sum, public.batch_progress, public.card_counts,
+  public.idle_cards, public.latest_rating_snapshots from public, anon;
+grant execute on function public.tap_count, public.tap_heatmap, public.tap_breakdown,
+  public.last_tap_by_card, public.payments_sum, public.batch_progress, public.card_counts,
+  public.idle_cards, public.latest_rating_snapshots to authenticated, service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- Вход, сброс пароля и очередь ручной отправки
+-- -----------------------------------------------------------------------------
+
+-- Одноразовые ссылки сброса пароля (и установки пароля новому сотруднику).
+-- Сам токен не хранится — только SHA-256, как у приглашений. Срок жизни задаёт
+-- приложение (а не настройки Supabase Auth), потому что ссылку отправляет
+-- администратор вручную. Политик нет: таблица доступна только серверу (service_role).
+create table public.password_reset_tokens (
+  token_hash text primary key check (token_hash ~ '^[0-9a-f]{64}$'),
+  user_id    uuid not null references public.users (id) on delete cascade,
+  expires_at timestamptz not null,
+  used_at    timestamptz,
+  created_at timestamptz not null default now()
+);
+create index password_reset_tokens_user_id_idx on public.password_reset_tokens (user_id);
+alter table public.password_reset_tokens enable row level security;
+
+-- Очередь сообщений, которые администратор отправляет вручную (/admin/outbox).
+-- В тексте лежит одноразовая ссылка, поэтому доступ только у администратора.
+create table public.outbox_messages (
+  id         uuid primary key default gen_random_uuid(),
+  to_address text not null check (char_length(to_address) <= 254),
+  subject    text not null check (char_length(subject) <= 300),
+  body       text not null check (char_length(body) <= 5000),
+  tag        text not null check (tag in ('invitation', 'password_reset')),
+  queued_at  timestamptz not null default now(),
+  sent_at    timestamptz
+);
+create index outbox_messages_queued_at_idx on public.outbox_messages (queued_at desc);
+alter table public.outbox_messages enable row level security;
+create policy outbox_messages_admin on public.outbox_messages for all to authenticated
+  using ((select private.is_platform_admin()))
+  with check ((select private.is_platform_admin()));
+
+-- Сессии принадлежат Supabase Auth (схема auth недоступна через API), поэтому
+-- управление ими — через функции security definer с пустым search_path.
+
+-- Завершить сессии пользователя (все или все, кроме одной). Только сервер.
+create function public.revoke_user_sessions(p_user_id uuid, p_except_session_id uuid default null)
+returns void
+language sql security definer set search_path = '' as $$
+  delete from auth.sessions s
+  where s.user_id = p_user_id
+    and (p_except_session_id is null or s.id <> p_except_session_id)
+$$;
+revoke execute on function public.revoke_user_sessions from public, anon, authenticated;
+grant execute on function public.revoke_user_sessions to service_role;
+
+-- Мои активные сессии (список в настройках аккаунта).
+create function public.my_sessions()
+returns table (id uuid, created_at timestamptz, last_seen_at timestamptz, expires_at timestamptz, user_agent text)
+language sql stable security definer set search_path = '' as $$
+  select s.id, s.created_at, coalesce(s.refreshed_at, s.updated_at, s.created_at), s.not_after, s.user_agent
+  from auth.sessions s
+  where s.user_id = (select auth.uid())
+  order by coalesce(s.refreshed_at, s.updated_at, s.created_at) desc
+$$;
+
+-- Завершить одну свою сессию.
+create function public.revoke_my_session(p_session_id uuid)
+returns void
+language sql security definer set search_path = '' as $$
+  delete from auth.sessions s
+  where s.id = p_session_id and s.user_id = (select auth.uid())
+$$;
+revoke execute on function public.my_sessions, public.revoke_my_session from public, anon;
+grant execute on function public.my_sessions, public.revoke_my_session to authenticated, service_role;

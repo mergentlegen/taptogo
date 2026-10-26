@@ -126,7 +126,8 @@ export class MockAuthService implements AuthService {
     return this.signIn({ email, password: this.deps.demoPassword }, client);
   }
 
-  async signOut(token: string): Promise<void> {
+  async signOut(token: string | null): Promise<void> {
+    if (!token) return;
     const verified = await verifySessionToken(token, this.deps.sessionSecret, this.now());
     const stored = verified ? this.sessions.get(verified.sessionId) : undefined;
     if (!stored || stored.revokedAt) return;
@@ -150,7 +151,8 @@ export class MockAuthService implements AuthService {
     return password;
   }
 
-  async getSession(token: string): Promise<Session | null> {
+  async getSession(token: string | null): Promise<Session | null> {
+    if (!token) return null;
     const now = this.now();
     const verified = await verifySessionToken(token, this.deps.sessionSecret, now);
     const stored = verified ? this.sessions.get(verified.sessionId) : undefined;

@@ -273,6 +273,6 @@ describe("providers", () => {
     const container = createMockContainer(createSeedData({ now: NOW }), () => NOW);
     await container.email.send({ to: "a@b.kz", subject: "Тест", text: "Привет", tag: "invitation" });
 
-    expect(container.outbox?.list()).toMatchObject([{ to: "a@b.kz", subject: "Тест" }]);
+    expect(await container.outbox.list()).toMatchObject([{ to: "a@b.kz", subject: "Тест" }]);
   });
 });

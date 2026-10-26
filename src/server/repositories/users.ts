@@ -17,7 +17,11 @@ export interface UserRepository {
   listByIds(ids: readonly string[]): Promise<User[]>;
   /** Users with a platformRole (TapToGo staff). */
   listPlatformStaff(): Promise<User[]>;
-  create(input: NewEntity<User>): Promise<User>;
+  /**
+   * `id` is the Supabase Auth user id: required there (the profile row extends
+   * `auth.users`), optional in mock mode where the repository generates it.
+   */
+  create(input: NewEntity<User> & { id?: string }): Promise<User>;
   update(id: string, patch: UserPatch): Promise<User>;
 }
 

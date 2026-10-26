@@ -38,4 +38,42 @@ describe("parseEnv", () => {
   it("rejects a malformed APP_URL", () => {
     expect(() => parseEnv({ APP_URL: "not a url" })).toThrow(/APP_URL/);
   });
+
+  it("treats empty Supabase variables as not set", () => {
+    const env = parseEnv({
+      SUPABASE_URL: "",
+      SUPABASE_PUBLISHABLE_KEY: "",
+      SUPABASE_SECRET_KEY: "",
+      CRON_SECRET: "",
+      TWOGIS_API_KEY: "",
+    });
+
+    expect(env.SUPABASE_URL).toBeUndefined();
+    expect(env.SUPABASE_SECRET_KEY).toBeUndefined();
+    expect(env.CRON_SECRET).toBeUndefined();
+  });
+
+  it("validates Supabase variables when they are set, without echoing them", () => {
+    const run = () => parseEnv({ SUPABASE_URL: "nope", CRON_SECRET: "short-cron" });
+
+    expect(run).toThrow(/SUPABASE_URL/);
+    expect(run).toThrow(/CRON_SECRET/);
+    expect(run).not.toThrow(/short-cron/);
+  });
+
+  it("needs the Supabase keys, but no SESSION_SECRET, when the data source is supabase", () => {
+    const run = () => parseEnv({ NODE_ENV: "production", DATA_SOURCE: "supabase" });
+    expect(run).toThrow(/SUPABASE_URL/);
+    expect(run).toThrow(/SUPABASE_SECRET_KEY/);
+    expect(run).not.toThrow(/SESSION_SECRET/);
+
+    const env = parseEnv({
+      NODE_ENV: "production",
+      DATA_SOURCE: "supabase",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_PUBLISHABLE_KEY: "sb_publishable_x",
+      SUPABASE_SECRET_KEY: "sb_secret_x",
+    });
+    expect(env.DATA_SOURCE).toBe("supabase");
+  });
 });

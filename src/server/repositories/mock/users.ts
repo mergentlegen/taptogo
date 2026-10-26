@@ -24,7 +24,7 @@ export function mockUserRepository({ db, clock, newId }: MockContext): UserRepos
       if (db.users.some((u) => u.email === email)) {
         throw serviceError("CONFLICT", "userExists");
       }
-      const user = { ...clone(input), email, id: newId(), createdAt: clock().toISOString() };
+      const user = { ...clone(input), email, id: input.id ?? newId(), createdAt: clock().toISOString() };
       db.users.push(user);
       return clone(user);
     },

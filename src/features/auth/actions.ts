@@ -70,8 +70,8 @@ export async function signInAsDemoAction(input: {
 }
 
 export async function signOutAction(): Promise<void> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (token) await getContainer().auth.signOut(token);
+  const token = (await cookies()).get(SESSION_COOKIE)?.value ?? null;
+  await getContainer().auth.signOut(token);
   await clearSessionCookie();
   redirect("/login?signedOut=1");
 }

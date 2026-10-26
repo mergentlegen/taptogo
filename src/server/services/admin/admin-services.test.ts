@@ -28,7 +28,7 @@ beforeEach(async () => {
     );
     if (!signIn.ok) throw new Error("sign-in failed");
     const user = await users.findByEmail(email);
-    return { userId: user!.id, role: user!.platformRole!, sessionId: signIn.session.token.split(".")[0]! };
+    return { userId: user!.id, role: user!.platformRole!, sessionId: signIn.session.token!.split(".")[0]! };
   };
   adminCtx = await ctxFor("admin@taptogo.kz");
   partnerCtx = await ctxFor("admin2@taptogo.kz");
@@ -81,7 +81,7 @@ describe("client wizard", () => {
     expect(await repos.invitations.listByOrganization(org.id)).toEqual([
       expect.objectContaining({ email: "owner@shashlyk.kz", role: "OWNER" }),
     ]);
-    expect(container.outbox?.list()[0]?.to).toBe("owner@shashlyk.kz");
+    expect((await container.outbox.list())[0]?.to).toBe("owner@shashlyk.kz");
   });
 
   it("rejects a malformed 2GIS link before creating anything", async () => {
@@ -288,7 +288,7 @@ describe("staff", () => {
       name: "Новый Админ",
     });
     expect(user.platformRole).toBe("ADMIN");
-    expect(container.outbox?.list()[0]).toMatchObject({
+    expect((await container.outbox.list())[0]).toMatchObject({
       to: "new.admin@taptogo.kz",
       tag: "password_reset",
     });
@@ -325,7 +325,7 @@ describe("impersonation", () => {
       { ip: "imp", userAgent: null },
     );
     if (!session.ok) throw new Error();
-    const ctx = { ...partnerCtx, sessionId: session.session.token.split(".")[0]! };
+    const ctx = { ...partnerCtx, sessionId: session.session.token!.split(".")[0]! };
 
     await admin.clients.startImpersonation(ctx, coffee);
     expect((await container.auth.getSession(session.session.token))?.impersonation?.organizationId).toBe(
@@ -414,7 +414,7 @@ describe("consistency under concurrency and failures", () => {
     });
     // Stored and queued: the admin copies the link from /admin/outbox.
     expect(await container.repositories.invitations.listByOrganization(organization.id)).toHaveLength(1);
-    expect(container.outbox.list()[0]).toMatchObject({ to: "owner@nomail.kz", tag: "invitation" });
+    expect((await container.outbox.list())[0]).toMatchObject({ to: "owner@nomail.kz", tag: "invitation" });
   });
 });
 

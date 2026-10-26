@@ -238,7 +238,7 @@ describe("team", () => {
     const mine = invitations.filter((i) => i.email === "new@coffeepoint.kz");
     expect(mine).toHaveLength(1);
     expect(mine[0]?.role).toBe("MANAGER");
-    expect(container.outbox?.list()[0]?.text).toMatch(/\/invite\/[A-Za-z0-9_-]{43}/);
+    expect((await container.outbox.list())[0]?.text).toMatch(/\/invite\/[A-Za-z0-9_-]{43}/);
   });
 
   it("refuses to invite an existing member", async () => {

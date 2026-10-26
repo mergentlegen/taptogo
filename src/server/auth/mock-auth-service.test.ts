@@ -24,11 +24,11 @@ const signIn = (email: string, password: string, from = client) =>
 async function signedInToken(email = "owner@coffeepoint.kz"): Promise<string> {
   const result = await signIn(email, DEMO_PASSWORD);
   if (!result.ok) throw new Error(`sign-in failed: ${result.reason}`);
-  return result.session.token;
+  return result.session.token ?? "";
 }
 
-function lastEmailLink(): string {
-  const text = container.outbox?.list()[0]?.text ?? "";
+async function lastEmailLink(): Promise<string> {
+  const text = (await container.outbox.list())[0]?.text ?? "";
   const link = /https?:\/\/\S+/.exec(text)?.[0];
   if (!link) throw new Error("no link in email");
   return link;
@@ -140,7 +140,7 @@ describe("password reset", () => {
   it("sends a one-time link that changes the password and ends all sessions", async () => {
     const oldSession = await signedInToken();
     await container.auth.requestPasswordReset("owner@coffeepoint.kz", client);
-    const token = new URL(lastEmailLink()).searchParams.get("token") ?? "";
+    const token = new URL(await lastEmailLink()).searchParams.get("token") ?? "";
 
     expect(await container.auth.resetPassword(token, "Новый-пароль-2026")).toEqual({ ok: true });
     expect(await container.auth.resetPassword(token, "Ещё-один-пароль-1")).toEqual({ ok: false });
@@ -151,7 +151,7 @@ describe("password reset", () => {
 
   it("expires links after 30 minutes", async () => {
     await container.auth.requestPasswordReset("owner@coffeepoint.kz", client);
-    const token = new URL(lastEmailLink()).searchParams.get("token") ?? "";
+    const token = new URL(await lastEmailLink()).searchParams.get("token") ?? "";
 
     now += 30 * MINUTE + 1;
     expect(await container.auth.resetPassword(token, "Новый-пароль-2026")).toEqual({ ok: false });
@@ -159,12 +159,12 @@ describe("password reset", () => {
 
   it("sends nothing for unknown emails but still resolves", async () => {
     await expect(container.auth.requestPasswordReset("nobody@example.kz", client)).resolves.toBeUndefined();
-    expect(container.outbox?.list()).toEqual([]);
+    expect(await container.outbox.list()).toEqual([]);
   });
 
   it("caps reset emails per address", async () => {
     for (let i = 0; i < 5; i++) await container.auth.requestPasswordReset("owner@coffeepoint.kz", client);
-    expect(container.outbox?.list()).toHaveLength(3);
+    expect(await container.outbox.list()).toHaveLength(3);
   });
 });
 
@@ -251,7 +251,7 @@ describe("temporary passwords", () => {
 
     const changed = await container.auth.changePassword({
       userId: memberId,
-      currentSessionId: signedIn.session.token.split(".")[0]!,
+      currentSessionId: signedIn.session.token!.split(".")[0]!,
       currentPassword: temporary!,
       newPassword: "Мой-новый-пароль-2026",
     });

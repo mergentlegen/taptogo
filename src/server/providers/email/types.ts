@@ -24,3 +24,11 @@ export type QueuedMessage = EmailMessage & {
   /** Set when the administrator confirms the message has been sent. */
   sentAt: string | null;
 };
+
+/** The queue behind the "manual sending" page: messages wait here until an admin marks them sent. */
+export interface Outbox extends EmailProvider {
+  /** Newest first. */
+  list(): Promise<QueuedMessage[]>;
+  /** Returns false when there is no such message. */
+  markSent(id: string): Promise<boolean>;
+}

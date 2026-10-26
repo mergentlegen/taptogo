@@ -10,12 +10,12 @@ describe("ManualOutbox", () => {
     const { id } = await outbox.send(message("a@x.kz"));
     await outbox.send(message("b@x.kz"));
 
-    expect(outbox.list().map((m) => m.to)).toEqual(["b@x.kz", "a@x.kz"]);
-    expect(outbox.list().every((m) => m.sentAt === null)).toBe(true);
+    expect((await outbox.list()).map((m) => m.to)).toEqual(["b@x.kz", "a@x.kz"]);
+    expect((await outbox.list()).every((m) => m.sentAt === null)).toBe(true);
 
-    expect(outbox.markSent(id)).toBe(true);
-    expect(outbox.list().find((m) => m.id === id)?.sentAt).not.toBeNull();
-    expect(outbox.markSent("no-such-id")).toBe(false);
+    expect(await outbox.markSent(id)).toBe(true);
+    expect((await outbox.list()).find((m) => m.id === id)?.sentAt).not.toBeNull();
+    expect(await outbox.markSent("no-such-id")).toBe(false);
   });
 
   it("never drops a message that is still waiting, even when the queue is full", async () => {
@@ -23,7 +23,7 @@ describe("ManualOutbox", () => {
     const first = await outbox.send(message("first@x.kz"));
     for (let i = 0; i < 250; i++) await outbox.send(message(`n${i}@x.kz`));
 
-    expect(outbox.list().some((m) => m.id === first.id)).toBe(true);
-    expect(outbox.list().length).toBeLessThanOrEqual(251);
+    expect((await outbox.list()).some((m) => m.id === first.id)).toBe(true);
+    expect((await outbox.list()).length).toBeLessThanOrEqual(251);
   });
 });

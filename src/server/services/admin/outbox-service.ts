@@ -1,6 +1,5 @@
 import { serviceError } from "@/server/i18n";
-import type { ManualOutbox } from "@/server/providers/email/manual";
-import type { QueuedMessage } from "@/server/providers/email/types";
+import type { Outbox, QueuedMessage } from "@/server/providers/email/types";
 import type { AuditService } from "@/server/services/audit-service";
 
 import { assertAdmin, type AdminContext } from "./context";
@@ -8,11 +7,11 @@ import { assertAdmin, type AdminContext } from "./context";
 /** Messages that the administrator sends by hand (password resets, invitations). */
 export class AdminOutboxService {
   constructor(
-    private readonly outbox: ManualOutbox,
+    private readonly outbox: Outbox,
     private readonly audit: AuditService,
   ) {}
 
-  list(ctx: AdminContext): QueuedMessage[] {
+  async list(ctx: AdminContext): Promise<QueuedMessage[]> {
     assertAdmin(ctx, "admin.manage");
     return this.outbox.list();
   }
@@ -23,10 +22,10 @@ export class AdminOutboxService {
    */
   async markSent(ctx: AdminContext, id: string): Promise<void> {
     assertAdmin(ctx, "admin.manage");
-    const message = this.outbox.list().find((m) => m.id === id);
+    const message = (await this.outbox.list()).find((m) => m.id === id);
     if (!message) throw serviceError("NOT_FOUND", "messageNotFound");
     if (message.sentAt) return;
-    this.outbox.markSent(id);
+    await this.outbox.markSent(id);
     await this.audit.record({
       actorUserId: ctx.userId,
       action: "outbox.mark_sent",

@@ -27,6 +27,15 @@ alter default privileges in schema public grant all on functions to anon, authen
 create schema auth;
 grant usage on schema auth to anon, authenticated, service_role;
 create table auth.users (id uuid primary key);
+create table auth.sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz,
+  refreshed_at timestamp,
+  not_after timestamptz,
+  user_agent text
+);
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
@@ -453,6 +462,88 @@ describe("repository functions", () => {
     await rejects(
       `insert into public.cards (code, batch_id, number, label, type) values ('Dupl1cat', '${BATCH}', 1, 'x', 'STICKER')`,
       /duplicate key|unique/,
+    );
+  });
+});
+
+describe("sign-in support", () => {
+  const SESSION_A1 = uuid(801);
+  const SESSION_A2 = uuid(802);
+  const SESSION_B = uuid(803);
+  const seedSessions = () =>
+    db.exec(`
+      insert into auth.sessions (id, user_id, user_agent) values
+        ('${SESSION_A1}', '${U.ownerA}', 'Chrome'), ('${SESSION_A2}', '${U.ownerA}', 'Safari'),
+        ('${SESSION_B}', '${U.ownerB}', 'Firefox');`);
+
+  it("lists and ends only my own sessions", async () => {
+    await seedSessions();
+    await actAs(U.ownerA);
+    expect(
+      (await rows<{ id: string }>("select id from public.my_sessions()")).map((r) => r.id).sort(),
+    ).toEqual([SESSION_A1, SESSION_A2].sort());
+
+    await db.query(`select public.revoke_my_session('${SESSION_B}')`);
+    await db.query(`select public.revoke_my_session('${SESSION_A2}')`);
+    await db.exec("reset role");
+    expect((await rows<{ id: string }>("select id from auth.sessions order by id")).map((r) => r.id)).toEqual(
+      [SESSION_A1, SESSION_B],
+    );
+  });
+
+  it("ends a user's sessions on the server side only", async () => {
+    await seedSessions();
+    await actAs(U.ownerA);
+    await rejects(`select public.revoke_user_sessions('${U.ownerA}')`, /permission denied/);
+    await actAs("anon");
+    await rejects(`select public.my_sessions()`, /permission denied/);
+
+    await actAs("service");
+    await db.query(`select public.revoke_user_sessions('${U.ownerA}', '${SESSION_A1}')`);
+    await db.exec("reset role");
+    expect((await rows<{ id: string }>("select id from auth.sessions order by id")).map((r) => r.id)).toEqual(
+      [SESSION_A1, SESSION_B],
+    );
+    await actAs("service");
+    await db.query(`select public.revoke_user_sessions('${U.ownerA}')`);
+    await db.exec("reset role");
+    expect(await rows("select 1 from auth.sessions where user_id = '" + U.ownerA + "'")).toEqual([]);
+  });
+
+  it("keeps the manual sending queue to administrators", async () => {
+    await actAs("service");
+    await db.query(
+      `insert into public.outbox_messages (to_address, subject, body, tag) values ('a@a.kz', 'Тема', 'Ссылка', 'invitation')`,
+    );
+    await actAs(U.ownerA);
+    expect(await rows("select 1 from public.outbox_messages")).toEqual([]);
+    await rejects(
+      `insert into public.outbox_messages (to_address, subject, body, tag) values ('x@x.kz', 'x', 'x', 'invitation')`,
+      /row-level security/,
+    );
+    await actAs(U.admin);
+    expect(await rows("select to_address from public.outbox_messages")).toEqual([{ to_address: "a@a.kz" }]);
+    expect(await affected(`update public.outbox_messages set sent_at = now()`)).toBe(1);
+    await rejects(
+      `insert into public.outbox_messages (to_address, subject, body, tag) values ('x@x.kz', 'x', 'x', 'sms')`,
+      /outbox_messages_tag_check/,
+    );
+  });
+
+  it("keeps password reset tokens away from every user", async () => {
+    const hash = "a".repeat(64);
+    await actAs("service");
+    await db.query(
+      `insert into public.password_reset_tokens (token_hash, user_id, expires_at) values ('${hash}', '${U.ownerA}', now() + interval '30 minutes')`,
+    );
+    for (const who of [U.ownerA, U.admin] as const) {
+      await actAs(who);
+      expect(await rows("select 1 from public.password_reset_tokens")).toEqual([]);
+    }
+    await actAs(U.ownerA);
+    await rejects(
+      `insert into public.password_reset_tokens (token_hash, user_id, expires_at) values ('${"b".repeat(64)}', '${U.ownerA}', now())`,
+      /row-level security/,
     );
   });
 });

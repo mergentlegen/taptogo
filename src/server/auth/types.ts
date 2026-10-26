@@ -21,7 +21,12 @@ export type Session = {
 /** Request facts used for rate limiting and the sessions list. Never stored raw beyond that. */
 export type ClientInfo = { ip: string | null; userAgent: string | null };
 
-export type IssuedSession = { token: string; expiresAt: Date; user: SessionUser };
+/**
+ * `token` is the value of the app's own session cookie (mock data source). It is
+ * null when the auth backend keeps the session in its own cookies (Supabase Auth
+ * writes them while signing in), so there is nothing for the app to set.
+ */
+export type IssuedSession = { token: string | null; expiresAt: Date; user: SessionUser };
 
 export type SignInFailure = "INVALID_CREDENTIALS" | "RATE_LIMITED" | "BLOCKED";
 export type SignInResult = { ok: true; session: IssuedSession } | { ok: false; reason: SignInFailure };
@@ -53,9 +58,13 @@ export type AcceptInvitationResult =
  */
 export interface AuthService {
   signIn(credentials: { email: string; password: string }, client: ClientInfo): Promise<SignInResult>;
-  signOut(token: string): Promise<void>;
-  /** Validates the cookie token; null when missing, forged, expired or revoked. */
-  getSession(token: string): Promise<Session | null>;
+  /** Ends the current session. `token` is the app's session cookie, if the backend uses one. */
+  signOut(token: string | null): Promise<void>;
+  /**
+   * The session of the current request; null when missing, forged, expired or revoked.
+   * `token` is the app's session cookie, if the backend uses one (Supabase reads its own cookies).
+   */
+  getSession(token: string | null): Promise<Session | null>;
   listSessions(userId: string): Promise<SessionInfo[]>;
   revokeSession(userId: string, sessionId: string): Promise<void>;
   /** Always resolves, whether or not the email exists (no account enumeration). */

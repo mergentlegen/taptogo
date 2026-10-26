@@ -33,7 +33,7 @@ describe("landing leads", () => {
     expect(stored).toMatchObject({ status: "NEW", assigneeId: null, businessName: "Кофейня «Тест»" });
     const { items } = await container.repositories.auditLogs.list({ action: "lead.create" }, { limit: 10 });
     expect(items[0]).toMatchObject({ actorUserId: null, entityId: created.id });
-    expect(container.outbox.list()).toEqual([]);
+    expect(await container.outbox.list()).toEqual([]);
   });
 
   it("never stores the IP", async () => {

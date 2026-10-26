@@ -1,12 +1,12 @@
-import type { EmailMessage, EmailProvider, QueuedMessage } from "./types";
+import type { EmailMessage, Outbox, QueuedMessage } from "./types";
 
 const QUEUE_LIMIT = 200;
 
 /**
  * Manual sending: keeps messages until an administrator marks them as sent.
- * In memory for now, like the rest of the mock data; a table in Supabase later.
+ * In memory: the mock data source. Supabase uses `SupabaseOutbox` (a table).
  */
-export class ManualOutbox implements EmailProvider {
+export class ManualOutbox implements Outbox {
   readonly name = "manual";
   private readonly queue: QueuedMessage[] = [];
 
@@ -30,19 +30,18 @@ export class ManualOutbox implements EmailProvider {
   }
 
   /** Newest first. */
-  list(): QueuedMessage[] {
+  async list(): Promise<QueuedMessage[]> {
     return this.queue.map((m) => ({ ...m }));
   }
 
-  /** Returns false when there is no such message. */
-  markSent(id: string): boolean {
+  async markSent(id: string): Promise<boolean> {
     const item = this.queue.find((m) => m.id === id);
     if (!item) return false;
     item.sentAt ??= this.clock().toISOString();
     return true;
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
     this.queue.length = 0;
   }
 }
