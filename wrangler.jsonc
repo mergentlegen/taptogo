@@ -1,7 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "taptogo",
-  "main": ".open-next/worker.js",
+  // worker.mjs wraps the generated .open-next/worker.js and adds the scheduled keepalive.
+  "main": "worker.mjs",
   "compatibility_date": "2026-10-15",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
@@ -18,6 +19,10 @@
   "minify": true,
   "observability": {
     "enabled": true,
+  },
+  // Keeps the free Supabase project from being paused: daily at 03:00 Asia/Almaty (22:00 UTC).
+  "triggers": {
+    "crons": ["0 22 * * *"],
   },
   // Public settings. Secrets (SUPABASE_SECRET_KEY, CRON_SECRET) are NOT stored here:
   // they are set once with `pnpm wrangler secret put <NAME>`.
